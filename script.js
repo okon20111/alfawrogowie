@@ -5,7 +5,7 @@
     authDomain: "alfawrogowie.firebaseapp.com",
     databaseURL: "https://alfawrogowie-default-rtdb.firebaseio.com",
     projectId: "alfawrogowie",
-    storageBucket: "alfawrogowie.firebasestorage.app",
+    storageBucket: "alfawrogowie.appspot.com", // Poprawiony storage bucket
     messagingSenderId: "406592259974",
     appId: "1:406592259974:web:d78f924ccd243a4bf50e07"
   };
@@ -22,6 +22,7 @@
   const googleAuthStep = document.getElementById('google-auth-step');
   const pendingApproval = document.getElementById('pending-approval');
   const accountBlocked = document.getElementById('account-blocked');
+  const rejectionCooldown = document.getElementById('rejection-cooldown');
   const authError = document.getElementById('auth-error');
   const logoutBtn = document.getElementById('logout-btn');
   const userMenuBtn = document.getElementById('user-menu-btn');
@@ -40,6 +41,9 @@
   const deleteMessageBtn = document.getElementById('delete-message');
   const chatPanel = document.getElementById('chat-panel');
   const chatDisabled = document.getElementById('chat-disabled');
+  const chatDisabledReason = document.getElementById('chat-disabled-reason');
+  const typingUsers = document.getElementById('typing-users');
+  const scrollBottomBtn = document.getElementById('scroll-bottom');
 
   // Admin Panel Elements
   const adminPanelBtn = document.getElementById('admin-panel-btn');
@@ -51,6 +55,7 @@
   const requestsList = document.getElementById('requests-list');
   const usersList = document.getElementById('users-list');
   const usersSearchInput = document.getElementById('users-search');
+  const activityLog = document.getElementById('activity-log');
 
   // User Settings Modal
   const userSettingsModal = document.getElementById('user-settings-modal');
@@ -71,11 +76,26 @@
   // Settings Tab
   const globalChatEnabled = document.getElementById('global-chat-enabled');
   const autoApprove = document.getElementById('auto-approve');
+  const enableTypingIndicators = document.getElementById('enable-typing-indicators');
+  const rejectionCooldownSelect = document.getElementById('rejection-cooldown-select');
+
+  // Stats Tab
+  const statTotalUsers = document.getElementById('stat-total-users');
+  const statTotalMessages = document.getElementById('stat-total-messages');
+  const statTotalEncryptions = document.getElementById('stat-total-encryptions');
+  const statOnlineNow = document.getElementById('stat-online-now');
+
+  // Tools Tab
+  const clearChatBtn = document.getElementById('clear-chat-btn');
+  const exportUsersBtn = document.getElementById('export-users-btn');
+  const broadcastMessage = document.getElementById('broadcast-message');
+  const broadcastBtn = document.getElementById('broadcast-btn');
+  const resetSettingsBtn = document.getElementById('reset-settings-btn');
 
   // Cipher elements
   const inputEl = document.getElementById('input');
   const outputEl = document.getElementById('output');
-  const btnCopyIn = document.getElementById('btn-copy-in');
+  const btnPaste = document.getElementById('btn-paste');
   const btnCopyOut = document.getElementById('btn-copy-out');
   const btnClear = document.getElementById('btn-clear');
   const btnSwap = document.getElementById('btn-swap');
@@ -83,15 +103,17 @@
   const btnDecode = document.getElementById('btn-decode');
   const inputCount = document.getElementById('input-count');
   const outputCount = document.getElementById('output-count');
-  const ambiguityWrap = document.getElementById('ambiguity-wrap');
-  const ambiguitySelect = document.getElementById('ambiguity-select');
+  const inputLabel = document.getElementById('input-label');
+  const outputLabel = document.getElementById('output-label');
+  const typingIndicator = document.getElementById('typing-indicator');
+  const copySuccess = document.getElementById('copy-success');
+  const totalEncoded = document.getElementById('total-encoded');
 
   // State
   let currentUser = null;
   let currentUserData = null;
   let isAdmin = false;
   let cipherMode = 'encode';
-  let ambiguityPreference = 'ę';
   let userPresenceRef = null;
   let selectedMessageId = null;
   let selectedMessageText = null;
@@ -100,27 +122,43 @@
   let allUsers = {};
   let globalSettings = {
     chatEnabled: true,
-    autoApprove: false
+    autoApprove: false,
+    rejectionCooldown: 3600000, // 1 hour default
+    enableTypingIndicators: true,
+    theme: 'dark'
   };
-  let blockCheckInterval = null;
-  let deletionCheckInterval = null;
-  let userDataListener = null;
+  
+  // Listeners cleanup
+  let listeners = {
+    settings: null,
+    requests: null,
+    users: null,
+    messages: null,
+    presence: null,
+    userData: null,
+    typing: null,
+    stats: null
+  };
 
-  // Cipher Map
+  let typingTimer = null;
+  let isTyping = false;
+  let typingUsersMap = {};
+  let encodedCount = 0;
+
+  // Cipher Map (simplified - removed ambiguity)
   const cipherMap = {
     'a': '⧫', 'ą': '⚯', 'b': '⨀', 'c': '⧗', 'ć': '⧼',
     'd': '⊶', 'e': '⌇', 'ę': '⍟', 'f': '⏃', 'g': '⌖',
     'h': '⌬', 'i': '⍙', 'j': '⎔', 'k': '⧙', 'l': '⧉',
     'ł': '⧻', 'm': '⧴', 'n': '⌻', 'ń': '⏇', 'o': '⏀',
     'ó': '⏂', 'p': '⏉', 'q': '⍾', 'r': '⍛', 's': '⍭',
-    'ś': '⍟', 't': '⌆', 'u': '⌑', 'v': '⌄', 'w': '⏊',
+    'ś': '⌭', 't': '⌆', 'u': '⌑', 'v': '⌄', 'w': '⏊',
     'x': '⎊', 'y': '⍤', 'z': '⌯', 'ź': '⌰', 'ż': '⏁'
   };
 
   const reverseMap = {};
   Object.entries(cipherMap).forEach(([letter, symbol]) => {
-    if (!reverseMap[symbol]) reverseMap[symbol] = [];
-    reverseMap[symbol].push(letter);
+    reverseMap[symbol] = letter;
   });
 
   // Utility Functions
@@ -157,14 +195,13 @@
     });
   }
 
-  function calculateBlockExpiry(months = 0, days = 0, hours = 0, minutes = 0, seconds = 0) {
+  function calculateBlockExpiry(months = 0, days = 0, hours = 0, minutes = 0) {
     const now = Date.now();
     const duration = 
       (months * 30 * 24 * 60 * 60 * 1000) +
       (days * 24 * 60 * 60 * 1000) +
       (hours * 60 * 60 * 1000) +
-      (minutes * 60 * 1000) +
-      (seconds * 1000);
+      (minutes * 60 * 1000);
     return now + duration;
   }
 
@@ -177,108 +214,131 @@
     const days = Math.floor(remaining / (24 * 60 * 60 * 1000));
     const hours = Math.floor((remaining % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
     const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+    const seconds = Math.floor((remaining % (60 * 1000)) / 1000);
     
     const parts = [];
     if (days > 0) parts.push(`${days} ${days === 1 ? 'dzień' : 'dni'}`);
     if (hours > 0) parts.push(`${hours} ${hours === 1 ? 'godzina' : 'godzin'}`);
     if (minutes > 0) parts.push(`${minutes} ${minutes === 1 ? 'minuta' : 'minut'}`);
+    if (days === 0 && hours === 0 && seconds > 0) parts.push(`${seconds} ${seconds === 1 ? 'sekunda' : 'sekund'}`);
     
     return parts.length > 0 ? parts.join(', ') : 'Mniej niż minuta';
   }
 
-  // Account deletion monitoring
-  function startDeletionMonitoring() {
-    if (!currentUser || isAdmin) return;
+  function formatCooldownTime(ms) {
+    const hours = Math.floor(ms / (60 * 60 * 1000));
+    const minutes = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000));
+    const seconds = Math.floor((ms % (60 * 1000)) / 1000);
     
-    // Clear existing interval
-    if (deletionCheckInterval) {
-      clearInterval(deletionCheckInterval);
-    }
-    
-    // Clear existing listener
-    if (userDataListener) {
-      userDataListener.off();
-      userDataListener = null;
-    }
-    
-    // Real-time listener for account deletion
-    userDataListener = database.ref(`users/${currentUser.uid}`);
-    userDataListener.on('value', async (snapshot) => {
-      if (!snapshot.exists() && currentUser) {
-        // Account was deleted from database
-        console.log('⚠️ Account deleted from database');
-        
-        // Force logout
-        appScreen.style.display = 'none';
-        authScreen.style.display = 'flex';
-        googleAuthStep.style.display = 'block';
-        pendingApproval.style.display = 'none';
-        accountBlocked.style.display = 'none';
-        
-        showAuthError('Twoje konto zostało usunięte');
-        
-        // Clean up
-        if (userPresenceRef) {
-          await userPresenceRef.remove();
-        }
-        
-        // Sign out from Firebase Auth
-        await auth.signOut();
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  }
+
+  // Cleanup all listeners
+  function cleanupListeners() {
+    Object.keys(listeners).forEach(key => {
+      if (listeners[key]) {
+        listeners[key].off();
+        listeners[key] = null;
       }
     });
   }
 
-  // Real-time block monitoring
-  function startBlockMonitoring() {
-    if (!currentUser || isAdmin) return;
-    
-    // Clear existing interval
-    if (blockCheckInterval) {
-      clearInterval(blockCheckInterval);
-    }
-    
-    // Check every 5 seconds for block status
-    blockCheckInterval = setInterval(async () => {
-      if (!currentUser) {
-        clearInterval(blockCheckInterval);
-        return;
+  // Check if user can retry after rejection
+  async function checkRejectionCooldown(uid) {
+    try {
+      const requestSnapshot = await database.ref(`accessRequests/${uid}`).once('value');
+      if (!requestSnapshot.exists()) return true;
+      
+      const request = requestSnapshot.val();
+      if (request.status !== 'rejected') return true;
+      
+      // Check global cooldown setting
+      if (globalSettings.rejectionCooldown === -1) {
+        // Never allow retry
+        return false;
       }
       
-      try {
-        const userSnapshot = await database.ref(`users/${currentUser.uid}`).once('value');
-        
-        if (!userSnapshot.exists()) {
-          // Account deleted
-          clearInterval(blockCheckInterval);
-          return; // Will be handled by deletion monitoring
-        }
-        
-        const userData = userSnapshot.val();
-        
-        if (userData && userData.blocked && !currentUserData.blocked) {
-          // User just got blocked
-          clearInterval(blockCheckInterval);
-          currentUserData.blocked = true;
-          
-          // Force logout
-          appScreen.style.display = 'none';
-          authScreen.style.display = 'flex';
-          
-          // Show blocked screen
-          showBlockedScreen(userData);
-          
-          // Clean up
-          if (userPresenceRef) {
-            await userPresenceRef.remove();
-          }
-          
-          showToast('Twoje konto zostało zablokowane', 'error');
-        }
-      } catch (error) {
-        console.error('Block monitoring error:', error);
+      if (globalSettings.rejectionCooldown === 0) {
+        // Allow immediate retry
+        return true;
       }
-    }, 5000); // Check every 5 seconds
+      
+      // Check if cooldown has passed
+      const rejectedAt = request.rejectedAt || 0;
+      const cooldownExpiry = rejectedAt + globalSettings.rejectionCooldown;
+      
+      return Date.now() >= cooldownExpiry;
+    } catch (error) {
+      console.error('Error checking rejection cooldown:', error);
+      return false;
+    }
   }
+
+  function showRejectionCooldown(request) {
+    console.log('🚫 Showing rejection cooldown screen');
+    googleAuthStep.style.display = 'none';
+    pendingApproval.style.display = 'none';
+    accountBlocked.style.display = 'none';
+    rejectionCooldown.style.display = 'block';
+    
+    const cooldownMessage = document.getElementById('cooldown-message');
+    const cooldownTimer = document.getElementById('cooldown-timer');
+    const retryBtn = document.getElementById('retry-request-btn');
+    
+    if (globalSettings.rejectionCooldown === -1) {
+      cooldownMessage.textContent = 'Nie możesz ponownie wysłać prośby o dostęp.';
+      cooldownTimer.style.display = 'none';
+      retryBtn.style.display = 'none';
+    } else {
+      const rejectedAt = request.rejectedAt || 0;
+      const cooldownExpiry = rejectedAt + globalSettings.rejectionCooldown;
+      
+      const updateTimer = () => {
+        const remaining = cooldownExpiry - Date.now();
+        
+        if (remaining <= 0) {
+          cooldownMessage.textContent = 'Możesz teraz ponownie wysłać prośbę o dostęp.';
+          cooldownTimer.style.display = 'none';
+          retryBtn.style.display = 'inline-block';
+          clearInterval(timerInterval);
+        } else {
+          cooldownMessage.textContent = 'Możesz ponownie wysłać prośbę za:';
+          cooldownTimer.textContent = formatCooldownTime(remaining);
+          cooldownTimer.style.display = 'block';
+          retryBtn.style.display = 'none';
+        }
+      };
+      
+      updateTimer();
+      const timerInterval = setInterval(updateTimer, 1000);
+    }
+  }
+
+  // Retry request button
+  document.getElementById('retry-request-btn')?.addEventListener('click', async () => {
+    if (!currentUser) return;
+    
+    try {
+      // Delete old rejection
+      await database.ref(`accessRequests/${currentUser.uid}`).remove();
+      
+      // Create new request
+      await database.ref(`accessRequests/${currentUser.uid}`).set({
+        uid: currentUser.uid,
+        email: currentUser.email,
+        displayName: currentUser.displayName || currentUser.email.split('@')[0],
+        photoURL: currentUser.photoURL || null,
+        requestedAt: firebase.database.ServerValue.TIMESTAMP,
+        status: 'pending'
+      });
+      
+      showPendingScreen(currentUser);
+      showToast('Prośba o dostęp została wysłana ponownie', 'info');
+    } catch (error) {
+      console.error('Error retrying request:', error);
+      showToast('Błąd wysyłania prośby', 'error');
+    }
+  });
 
   // CHECK IF FIRST USER (ADMIN)
   async function isFirstUser() {
@@ -317,6 +377,9 @@
   async function handleUserLogin(user) {
     try {
       console.log('📝 Processing user login:', user.email);
+      
+      // Load global settings first
+      await loadGlobalSettings();
       
       const firstUser = await isFirstUser();
       
@@ -389,26 +452,53 @@
             if (requestData.status === 'pending') {
               showPendingScreen(user);
             } else if (requestData.status === 'rejected') {
-              showAuthError('Twoja prośba o dostęp została odrzucona');
-              await auth.signOut();
+              const canRetry = await checkRejectionCooldown(user.uid);
+              if (canRetry) {
+                // Allow new request
+                await database.ref(`accessRequests/${user.uid}`).remove();
+                
+                if (globalSettings.autoApprove) {
+                  // Auto-approve new user
+                  await createAutoApprovedUser(user);
+                } else {
+                  // Create new request
+                  await database.ref(`accessRequests/${user.uid}`).set({
+                    uid: user.uid,
+                    email: user.email,
+                    displayName: user.displayName || user.email.split('@')[0],
+                    photoURL: user.photoURL || null,
+                    requestedAt: firebase.database.ServerValue.TIMESTAMP,
+                    status: 'pending'
+                  });
+                  showPendingScreen(user);
+                }
+              } else {
+                showRejectionCooldown(requestData);
+              }
             } else if (requestData.status === 'approved') {
               await createUserFromRequest(user.uid, requestData);
               showApp(user);
             }
           } else {
-            console.log('🆕 New user - creating access request');
+            console.log('🆕 New user - checking auto-approve');
             
-            await database.ref(`accessRequests/${user.uid}`).set({
-              uid: user.uid,
-              email: user.email,
-              displayName: user.displayName || user.email.split('@')[0],
-              photoURL: user.photoURL || null,
-              requestedAt: firebase.database.ServerValue.TIMESTAMP,
-              status: 'pending'
-            });
-            
-            showPendingScreen(user);
-            showToast('Prośba o dostęp została wysłana do administratora', 'info');
+            if (globalSettings.autoApprove) {
+              // Auto-approve new user
+              await createAutoApprovedUser(user);
+            } else {
+              // Create access request
+              await database.ref(`accessRequests/${user.uid}`).set({
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName || user.email.split('@')[0],
+                photoURL: user.photoURL || null,
+                requestedAt: firebase.database.ServerValue.TIMESTAMP,
+                status: 'pending'
+              });
+              
+              showPendingScreen(user);
+              showToast('Prośba o dostęp została wysłana do administratora', 'info');
+            }
           }
         }
       }
@@ -416,6 +506,36 @@
       console.error('❌ Error handling user login:', error);
       showAuthError('Błąd podczas logowania. Spróbuj ponownie.');
     }
+  }
+
+  async function createAutoApprovedUser(user) {
+    const userData = {
+      email: user.email,
+      displayName: user.displayName || user.email.split('@')[0],
+      photoURL: user.photoURL || null,
+      createdAt: firebase.database.ServerValue.TIMESTAMP,
+      lastLogin: firebase.database.ServerValue.TIMESTAMP,
+      role: 'user',
+      isAdmin: false,
+      approved: true,
+      chatEnabled: true,
+      blocked: false,
+      provider: 'google.com',
+      autoApproved: true
+    };
+    
+    await database.ref(`users/${user.uid}`).set(userData);
+    currentUserData = userData;
+    isAdmin = false;
+    
+    // Log activity
+    await logActivity('user_auto_approved', {
+      userId: user.uid,
+      email: user.email
+    });
+    
+    showApp(user);
+    showToast('Witaj! Twoje konto zostało automatycznie zatwierdzone', 'success');
   }
 
   async function createUserFromRequest(uid, requestData) {
@@ -462,23 +582,19 @@
       console.log('👤 Logged as USER');
       
       // Start monitoring for blocks and deletion (only for non-admin users)
-      startBlockMonitoring();
-      startDeletionMonitoring();
+      startRealtimeMonitoring();
     }
     
-    if (currentUserData && (!globalSettings.chatEnabled || currentUserData.chatEnabled === false)) {
-      chatForm.style.display = 'none';
-      chatDisabled.style.display = 'flex';
-    } else {
-      chatForm.style.display = 'flex';
-      chatDisabled.style.display = 'none';
-    }
+    // Apply chat settings
+    updateChatAvailability();
     
     authScreen.style.display = 'none';
     appScreen.style.display = 'block';
     
     setupPresence();
     startChatListeners();
+    startGlobalSettingsListener();
+    loadEncryptionStats();
     
     showToast(`Witaj ${user.displayName || user.email}!`, 'success');
   }
@@ -488,6 +604,7 @@
     googleAuthStep.style.display = 'none';
     pendingApproval.style.display = 'block';
     accountBlocked.style.display = 'none';
+    rejectionCooldown.style.display = 'none';
     const pendingEmail = document.querySelector('.pending-email');
     if (pendingEmail) pendingEmail.textContent = user.email;
   }
@@ -497,6 +614,7 @@
     googleAuthStep.style.display = 'none';
     pendingApproval.style.display = 'none';
     accountBlocked.style.display = 'block';
+    rejectionCooldown.style.display = 'none';
     
     let blockReason = userData.blockReason || 'Konto zablokowane';
     if (userData.blockReason === 'security') {
@@ -524,6 +642,83 @@
     }
   }
 
+  // Real-time monitoring for user changes
+  function startRealtimeMonitoring() {
+    if (!currentUser || isAdmin) return;
+    
+    // Monitor user data changes
+    if (listeners.userData) listeners.userData.off();
+    
+    listeners.userData = database.ref(`users/${currentUser.uid}`);
+    listeners.userData.on('value', async (snapshot) => {
+      if (!snapshot.exists() && currentUser) {
+        // Account was deleted
+        console.log('⚠️ Account deleted from database');
+        
+        // Force logout
+        appScreen.style.display = 'none';
+        authScreen.style.display = 'flex';
+        googleAuthStep.style.display = 'block';
+        
+        showAuthError('Twoje konto zostało usunięte');
+        
+        // Clean up
+        cleanupListeners();
+        if (userPresenceRef) {
+          await userPresenceRef.remove();
+        }
+        
+        // Sign out from Firebase Auth
+        await auth.signOut();
+      } else if (snapshot.exists()) {
+        const userData = snapshot.val();
+        const wasBlocked = currentUserData?.blocked;
+        currentUserData = userData;
+        
+        // Check if user got blocked
+        if (userData.blocked && !wasBlocked) {
+          console.log('🚫 User got blocked');
+          
+          // Force logout
+          appScreen.style.display = 'none';
+          authScreen.style.display = 'flex';
+          
+          // Show blocked screen
+          showBlockedScreen(userData);
+          
+          // Clean up
+          cleanupListeners();
+          if (userPresenceRef) {
+            await userPresenceRef.remove();
+          }
+          
+          showToast('Twoje konto zostało zablokowane', 'error');
+        }
+        
+        // Update chat availability if changed
+        updateChatAvailability();
+      }
+    });
+  }
+
+  // Update chat availability based on settings
+  function updateChatAvailability() {
+    if (!currentUserData) return;
+    
+    const chatEnabled = globalSettings.chatEnabled && currentUserData.chatEnabled !== false;
+    
+    if (chatForm) chatForm.style.display = chatEnabled ? 'flex' : 'none';
+    if (chatDisabled) chatDisabled.style.display = chatEnabled ? 'none' : 'flex';
+    
+    if (chatDisabledReason) {
+      if (!globalSettings.chatEnabled) {
+        chatDisabledReason.textContent = 'przez administratora globalnie';
+      } else if (currentUserData.chatEnabled === false) {
+        chatDisabledReason.textContent = 'dla Twojego konta';
+      }
+    }
+  }
+
   // Global Settings Management
   async function loadGlobalSettings() {
     try {
@@ -534,11 +729,53 @@
         globalSettings = { ...globalSettings, ...snapshot.val() };
       }
       
+      // Update UI
       if (globalChatEnabled) globalChatEnabled.checked = globalSettings.chatEnabled;
       if (autoApprove) autoApprove.checked = globalSettings.autoApprove;
+      if (enableTypingIndicators) enableTypingIndicators.checked = globalSettings.enableTypingIndicators;
+      if (rejectionCooldownSelect) rejectionCooldownSelect.value = globalSettings.rejectionCooldown;
+      
+      // Apply theme
+      document.body.className = `theme-${globalSettings.theme || 'dark'}`;
     } catch (error) {
       console.error('Error loading settings:', error);
     }
+  }
+
+  // Listen to global settings changes in real-time
+  function startGlobalSettingsListener() {
+    if (listeners.settings) listeners.settings.off();
+    
+    listeners.settings = database.ref('system/settings');
+    listeners.settings.on('value', (snapshot) => {
+      if (snapshot.exists()) {
+        const newSettings = snapshot.val();
+        const oldChatEnabled = globalSettings.chatEnabled;
+        
+        globalSettings = { ...globalSettings, ...newSettings };
+        
+        // Update UI
+        if (globalChatEnabled) globalChatEnabled.checked = globalSettings.chatEnabled;
+        if (autoApprove) autoApprove.checked = globalSettings.autoApprove;
+        if (enableTypingIndicators) enableTypingIndicators.checked = globalSettings.enableTypingIndicators;
+        if (rejectionCooldownSelect) rejectionCooldownSelect.value = globalSettings.rejectionCooldown;
+        
+        // Apply theme
+        document.body.className = `theme-${globalSettings.theme || 'dark'}`;
+        
+        // Update chat availability
+        updateChatAvailability();
+        
+        // Show notification if chat was toggled
+        if (oldChatEnabled !== globalSettings.chatEnabled && !isAdmin) {
+          if (globalSettings.chatEnabled) {
+            showToast('Czat został włączony przez administratora', 'success');
+          } else {
+            showToast('Czat został wyłączony przez administratora', 'warning');
+          }
+        }
+      }
+    });
   }
 
   async function saveGlobalSettings() {
@@ -548,6 +785,119 @@
     } catch (error) {
       console.error('Error saving settings:', error);
       showToast('Błąd zapisu ustawień', 'error');
+    }
+  }
+
+  // Activity Logging
+  async function logActivity(type, data) {
+    try {
+      await database.ref('system/activity').push({
+        type,
+        data,
+        timestamp: firebase.database.ServerValue.TIMESTAMP,
+        userId: currentUser?.uid,
+        userEmail: currentUser?.email
+      });
+    } catch (error) {
+      console.error('Error logging activity:', error);
+    }
+  }
+
+  // Load activity log
+  async function loadActivityLog() {
+    if (!isAdmin || !activityLog) return;
+    
+    try {
+      const snapshot = await database.ref('system/activity')
+        .orderByChild('timestamp')
+        .limitToLast(20)
+        .once('value');
+      
+      if (snapshot.exists()) {
+        const activities = [];
+        snapshot.forEach((child) => {
+          activities.unshift(child.val());
+        });
+        
+        activityLog.innerHTML = activities.map(activity => {
+          const time = new Date(activity.timestamp).toLocaleTimeString('pl-PL');
+          let message = '';
+          
+          switch(activity.type) {
+            case 'user_approved':
+              message = `✅ ${activity.data.email} został zatwierdzony`;
+              break;
+            case 'user_rejected':
+              message = `❌ ${activity.data.email} został odrzucony`;
+              break;
+            case 'user_blocked':
+              message = `🚫 ${activity.data.email} został zablokowany`;
+              break;
+            case 'user_unblocked':
+              message = `✓ ${activity.data.email} został odblokowany`;
+              break;
+            case 'user_deleted':
+              message = `🗑️ ${activity.data.email} został usunięty`;
+              break;
+            case 'user_auto_approved':
+              message = `✅ ${activity.data.email} automatycznie zatwierdzony`;
+              break;
+            case 'chat_cleared':
+              message = `🧹 Czat został wyczyszczony`;
+              break;
+            case 'broadcast_sent':
+              message = `📢 Wysłano powiadomienie globalne`;
+              break;
+            default:
+              message = activity.type;
+          }
+          
+          return `
+            <div class="activity-item">
+              <span class="activity-time">${time}</span>
+              <span class="activity-message">${message}</span>
+            </div>
+          `;
+        }).join('');
+      } else {
+        activityLog.innerHTML = `
+          <div class="empty-state">
+            <span>📊</span>
+            <p>Brak aktywności do wyświetlenia</p>
+          </div>
+        `;
+      }
+    } catch (error) {
+      console.error('Error loading activity:', error);
+    }
+  }
+
+  // Statistics
+  async function loadStatistics() {
+    if (!isAdmin) return;
+    
+    try {
+      // Users count
+      const usersSnapshot = await database.ref('users').once('value');
+      const totalUsers = usersSnapshot.numChildren();
+      if (statTotalUsers) statTotalUsers.textContent = totalUsers;
+      
+      // Messages count
+      const messagesSnapshot = await database.ref('messages').once('value');
+      const totalMessages = messagesSnapshot.numChildren();
+      if (statTotalMessages) statTotalMessages.textContent = totalMessages;
+      
+      // Encryptions count
+      const statsSnapshot = await database.ref('system/stats/totalEncryptions').once('value');
+      const totalEncryptions = statsSnapshot.val() || 0;
+      if (statTotalEncryptions) statTotalEncryptions.textContent = totalEncryptions;
+      
+      // Online users
+      const presenceSnapshot = await database.ref('presence').once('value');
+      const onlineUsers = presenceSnapshot.numChildren();
+      if (statOnlineNow) statOnlineNow.textContent = onlineUsers;
+    } catch (error) {
+      console.error('Error loading statistics:', error);
     }
   }
 
@@ -565,9 +915,13 @@
     if (adminNotifications) adminNotifications.style.display = 'block';
     
     loadGlobalSettings();
+    loadStatistics();
+    loadActivityLog();
     
-    const requestsRef = database.ref('accessRequests');
-    requestsRef.on('value', (snapshot) => {
+    // Monitor access requests
+    if (listeners.requests) listeners.requests.off();
+    listeners.requests = database.ref('accessRequests');
+    listeners.requests.on('value', (snapshot) => {
       pendingRequests = {};
       let pendingCount = 0;
       
@@ -598,15 +952,15 @@
       }
     });
     
-    const usersRef = database.ref('users');
-    usersRef.on('value', (snapshot) => {
+    // Monitor users
+    if (listeners.users) listeners.users.off();
+    listeners.users = database.ref('users');
+    listeners.users.on('value', (snapshot) => {
       allUsers = {};
       
       if (snapshot.exists()) {
         snapshot.forEach((child) => {
-          const userData = child.val();
-          // Store all users but filter display
-          allUsers[child.key] = userData;
+          allUsers[child.key] = child.val();
         });
       }
       
@@ -615,6 +969,13 @@
       if (usersCount) usersCount.textContent = regularUsers.length;
       
       renderUsersList();
+    });
+    
+    // Monitor statistics
+    if (listeners.stats) listeners.stats.off();
+    listeners.stats = database.ref('system/stats');
+    listeners.stats.on('value', () => {
+      loadStatistics();
     });
   }
 
@@ -675,7 +1036,7 @@
       if (!searchTerm) return true;
       const term = searchTerm.toLowerCase();
       return user.email.toLowerCase().includes(term) ||
-             user.displayName.toLowerCase().includes(term);
+             (user.displayName && user.displayName.toLowerCase().includes(term));
     });
     
     if (usersArray.length === 0) {
@@ -691,7 +1052,7 @@
     usersList.innerHTML = usersArray.map(([uid, user]) => `
       <div class="user-item ${user.blocked ? 'blocked' : ''}" data-uid="${uid}">
         <div class="user-info">
-          <div class="user-avatar">
+          <div class="user-avatar-item">
             ${user.photoURL ? 
               `<img src="${user.photoURL}" alt="${user.displayName}" />` :
               `<span>${(user.displayName || user.email)[0].toUpperCase()}</span>`
@@ -699,8 +1060,9 @@
           </div>
           <div class="user-details">
             <h4>${escapeHtml(user.displayName)}
-              ${user.blocked ? '<span class="blocked-badge">Zablokowany</span>' : ''}
+              ${user.blocked ? '<span class="badge-blocked">Zablokowany</span>' : ''}
               ${!user.chatEnabled ? '<span class="chat-disabled-badge">Czat wyłączony</span>' : ''}
+              ${user.autoApproved ? '<span class="badge-auto">Auto</span>' : ''}
             </h4>
             <p>${escapeHtml(user.email)}</p>
             <div class="user-meta">
@@ -721,6 +1083,25 @@
         </div>
       </div>
     `).join('');
+    
+    // Add badge-auto styles
+    const style = document.createElement('style');
+    style.textContent = `
+      .badge-auto {
+        padding: 2px 8px;
+        background: rgba(34, 211, 238, 0.2);
+        color: var(--accent-secondary);
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-left: 8px;
+      }
+    `;
+    if (!document.querySelector('style[data-badge-auto]')) {
+      style.setAttribute('data-badge-auto', 'true');
+      document.head.appendChild(style);
+    }
     
     // Add event listeners to settings buttons
     document.querySelectorAll('.btn-settings').forEach(btn => {
@@ -769,6 +1150,8 @@
       
       await database.ref().update(updates);
       
+      await logActivity('user_approved', { userId: uid, email: request.email });
+      
       console.log('✅ User approved and created:', request.email);
       showToast(`Użytkownik ${request.displayName} został zatwierdzony`, 'success');
       
@@ -789,12 +1172,16 @@
     try {
       console.log('❌ Rejecting user:', uid);
       
+      const request = pendingRequests[uid];
+      
       const updates = {};
       updates[`accessRequests/${uid}/status`] = 'rejected';
       updates[`accessRequests/${uid}/rejectedAt`] = firebase.database.ServerValue.TIMESTAMP;
       updates[`accessRequests/${uid}/rejectedBy`] = currentUser.uid;
       
       await database.ref().update(updates);
+      
+      await logActivity('user_rejected', { userId: uid, email: request?.email });
       
       showToast('Prośba została odrzucona', 'success');
     } catch (error) {
@@ -861,6 +1248,91 @@
   // Make openUserSettings available globally for onclick
   window.openUserSettings = openUserSettings;
 
+  // Theme selector
+  document.querySelectorAll('.theme-option').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const theme = btn.dataset.theme;
+      globalSettings.theme = theme;
+      document.body.className = `theme-${theme}`;
+      
+      document.querySelectorAll('.theme-option').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      if (isAdmin) {
+        await saveGlobalSettings();
+      }
+    });
+  });
+
+  // Admin Tools
+  clearChatBtn?.addEventListener('click', async () => {
+    if (!isAdmin || !confirm('Czy na pewno wyczyścić WSZYSTKIE wiadomości? Tej operacji nie można cofnąć!')) return;
+    
+    try {
+      await database.ref('messages').remove();
+      await logActivity('chat_cleared', {});
+      showToast('Czat został wyczyszczony', 'success');
+    } catch (error) {
+      console.error('Clear chat error:', error);
+      showToast('Błąd czyszczenia czatu', 'error');
+    }
+  });
+
+  exportUsersBtn?.addEventListener('click', () => {
+    if (!isAdmin) return;
+    
+    const data = JSON.stringify(allUsers, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `users_${new Date().toISOString()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    showToast('Dane użytkowników wyeksportowane', 'success');
+  });
+
+  broadcastBtn?.addEventListener('click', async () => {
+    if (!isAdmin || !broadcastMessage?.value.trim()) return;
+    
+    try {
+      await database.ref('messages').push({
+        text: broadcastMessage.value.trim(),
+        author: 'System',
+        userId: 'system',
+        email: 'system@alfawrogowie.app',
+        isAdmin: true,
+        timestamp: firebase.database.ServerValue.TIMESTAMP,
+        type: 'system'
+      });
+      
+      await logActivity('broadcast_sent', { message: broadcastMessage.value });
+      
+      broadcastMessage.value = '';
+      showToast('Powiadomienie wysłane', 'success');
+    } catch (error) {
+      console.error('Broadcast error:', error);
+      showToast('Błąd wysyłania powiadomienia', 'error');
+    }
+  });
+
+  resetSettingsBtn?.addEventListener('click', async () => {
+    if (!isAdmin || !confirm('Czy na pewno przywrócić domyślne ustawienia?')) return;
+    
+    globalSettings = {
+      chatEnabled: true,
+      autoApprove: false,
+      rejectionCooldown: 3600000,
+      enableTypingIndicators: true,
+      theme: 'dark'
+    };
+    
+    await saveGlobalSettings();
+    await loadGlobalSettings();
+    showToast('Ustawienia przywrócone', 'success');
+  });
+
   // User Settings Modal Handlers
   closeUserSettings?.addEventListener('click', () => {
     if (userSettingsModal) userSettingsModal.style.display = 'none';
@@ -878,15 +1350,14 @@
     const days = parseInt(document.getElementById('block-days')?.value) || 0;
     const hours = parseInt(document.getElementById('block-hours')?.value) || 0;
     const minutes = parseInt(document.getElementById('block-minutes')?.value) || 0;
-    const seconds = parseInt(document.getElementById('block-seconds')?.value) || 0;
     const reason = document.getElementById('block-reason-input')?.value || 'Naruszenie regulaminu';
     
-    if (months === 0 && days === 0 && hours === 0 && minutes === 0 && seconds === 0) {
+    if (months === 0 && days === 0 && hours === 0 && minutes === 0) {
       showToast('Podaj czas blokady', 'warning');
       return;
     }
     
-    const expiry = calculateBlockExpiry(months, days, hours, minutes, seconds);
+    const expiry = calculateBlockExpiry(months, days, hours, minutes);
     
     try {
       await database.ref(`users/${selectedUserId}`).update({
@@ -897,6 +1368,9 @@
         blockedAt: firebase.database.ServerValue.TIMESTAMP,
         blockedBy: currentUser.uid
       });
+      
+      const user = allUsers[selectedUserId];
+      await logActivity('user_blocked', { userId: selectedUserId, email: user?.email, reason, expiry });
       
       showToast('Użytkownik zablokowany tymczasowo', 'success');
       if (userSettingsModal) userSettingsModal.style.display = 'none';
@@ -920,6 +1394,9 @@
         blockedBy: currentUser.uid
       });
       
+      const user = allUsers[selectedUserId];
+      await logActivity('user_blocked', { userId: selectedUserId, email: user?.email, permanent: true });
+      
       showToast('Użytkownik zablokowany na stałe', 'success');
       if (userSettingsModal) userSettingsModal.style.display = 'none';
       
@@ -942,6 +1419,9 @@
         blockedBy: currentUser.uid
       });
       
+      const user = allUsers[selectedUserId];
+      await logActivity('user_blocked', { userId: selectedUserId, email: user?.email, reason: 'security' });
+      
       showToast('Użytkownik zablokowany ze względów bezpieczeństwa', 'success');
       if (userSettingsModal) userSettingsModal.style.display = 'none';
       
@@ -951,7 +1431,6 @@
     }
   });
 
-  // POPRAWIONA FUNKCJA USUWANIA UŻYTKOWNIKA
   deleteUserBtn?.addEventListener('click', async () => {
     if (!selectedUserId) return;
     
@@ -969,24 +1448,24 @@
     try {
       console.log('🗑️ Deleting user:', user.email);
       
-      // Usuń dane użytkownika pojedynczo, aby uniknąć problemów z uprawnieniami
+      // Delete user data
       await database.ref(`users/${selectedUserId}`).remove();
       
-      // Usuń presence jeśli istnieje
+      // Delete presence
       try {
         await database.ref(`presence/${selectedUserId}`).remove();
       } catch (e) {
         console.log('No presence to delete');
       }
       
-      // Usuń access request jeśli istnieje
+      // Delete access request
       try {
         await database.ref(`accessRequests/${selectedUserId}`).remove();
       } catch (e) {
         console.log('No access request to delete');
       }
       
-      // Opcjonalnie: usuń wiadomości użytkownika
+      // Delete user messages
       const messagesSnapshot = await database.ref('messages').once('value');
       if (messagesSnapshot.exists()) {
         const promises = [];
@@ -1001,6 +1480,8 @@
           await Promise.all(promises);
         }
       }
+      
+      await logActivity('user_deleted', { userId: selectedUserId, email: user.email });
       
       showToast(`Konto użytkownika ${user.email} zostało usunięte`, 'success');
       if (userSettingsModal) userSettingsModal.style.display = 'none';
@@ -1023,6 +1504,9 @@
         unblockedAt: firebase.database.ServerValue.TIMESTAMP,
         unblockedBy: currentUser.uid
       });
+      
+      const user = allUsers[selectedUserId];
+      await logActivity('user_unblocked', { userId: selectedUserId, email: user?.email });
       
       showToast('Użytkownik odblokowany', 'success');
       if (userSettingsModal) userSettingsModal.style.display = 'none';
@@ -1061,7 +1545,15 @@
         content.classList.remove('active');
       });
       const targetTab = document.getElementById(`${tabName}-tab`);
-      if (targetTab) targetTab.classList.add('active');
+      if (targetTab) {
+        targetTab.classList.add('active');
+        
+        // Load data when tab is opened
+        if (tabName === 'stats') {
+          loadStatistics();
+          loadActivityLog();
+        }
+      }
     });
   });
 
@@ -1073,6 +1565,16 @@
 
   autoApprove?.addEventListener('change', async (e) => {
     globalSettings.autoApprove = e.target.checked;
+    await saveGlobalSettings();
+  });
+
+  enableTypingIndicators?.addEventListener('change', async (e) => {
+    globalSettings.enableTypingIndicators = e.target.checked;
+    await saveGlobalSettings();
+  });
+
+  rejectionCooldownSelect?.addEventListener('change', async (e) => {
+    globalSettings.rejectionCooldown = parseInt(e.target.value);
     await saveGlobalSettings();
   });
 
@@ -1095,6 +1597,8 @@
     if (!currentUser) return;
     
     try {
+      await loadGlobalSettings();
+      
       const userSnapshot = await database.ref(`users/${currentUser.uid}`).once('value');
       
       if (userSnapshot.exists()) {
@@ -1134,7 +1638,13 @@
             showApp(currentUser);
             showToast('Twoje konto zostało zatwierdzone!', 'success');
           } else if (requestData.status === 'rejected') {
-            showToast('Twoja prośba o dostęp została odrzucona', 'error');
+            const canRetry = await checkRejectionCooldown(currentUser.uid);
+            if (canRetry) {
+              showToast('Możesz teraz ponownie wysłać prośbę o dostęp', 'info');
+              showRejectionCooldown(requestData);
+            } else {
+              showRejectionCooldown(requestData);
+            }
           } else {
             showToast('Twoje konto nadal oczekuje na zatwierdzenie', 'warning');
           }
@@ -1216,6 +1726,64 @@
     });
   }
 
+  // Typing indicators
+  function setupTypingIndicators() {
+    if (!globalSettings.enableTypingIndicators) return;
+    
+    messageInput?.addEventListener('input', () => {
+      if (!currentUser) return;
+      
+      if (!isTyping) {
+        isTyping = true;
+        database.ref(`typing/${currentUser.uid}`).set({
+          name: currentUser.displayName || currentUser.email.split('@')[0],
+          timestamp: firebase.database.ServerValue.TIMESTAMP
+        });
+      }
+      
+      clearTimeout(typingTimer);
+      typingTimer = setTimeout(() => {
+        isTyping = false;
+        database.ref(`typing/${currentUser.uid}`).remove();
+      }, 1000);
+    });
+    
+    // Listen to typing users
+    if (listeners.typing) listeners.typing.off();
+    listeners.typing = database.ref('typing');
+    listeners.typing.on('value', (snapshot) => {
+      typingUsersMap = {};
+      
+      if (snapshot.exists()) {
+        snapshot.forEach((child) => {
+          if (child.key !== currentUser.uid) {
+            typingUsersMap[child.key] = child.val();
+          }
+        });
+      }
+      
+      updateTypingIndicator();
+    });
+  }
+
+  function updateTypingIndicator() {
+    if (!typingUsers) return;
+    
+    const typingList = Object.values(typingUsersMap);
+    
+    if (typingList.length === 0) {
+      typingUsers.style.display = 'none';
+    } else {
+      const names = typingList.map(u => u.name);
+      const text = names.length === 1 
+        ? `${names[0]} pisze...`
+        : `${names.join(', ')} piszą...`;
+      
+      typingUsers.querySelector('.typing-text').textContent = text;
+      typingUsers.style.display = 'block';
+    }
+  }
+
   // Auth Handlers
   googleAuthBtn?.addEventListener('click', async () => {
     const provider = new firebase.auth.GoogleAuthProvider();
@@ -1254,19 +1822,16 @@
 
   logoutBtn?.addEventListener('click', async () => {
     try {
-      if (blockCheckInterval) {
-        clearInterval(blockCheckInterval);
-      }
-      if (deletionCheckInterval) {
-        clearInterval(deletionCheckInterval);
-      }
-      if (userDataListener) {
-        userDataListener.off();
-        userDataListener = null;
-      }
+      cleanupListeners();
+      
       if (userPresenceRef) {
         await userPresenceRef.remove();
       }
+      
+      if (isTyping) {
+        await database.ref(`typing/${currentUser.uid}`).remove();
+      }
+      
       await auth.signOut();
       showToast('Wylogowano pomyślnie');
     } catch (error) {
@@ -1302,16 +1867,7 @@
       currentUserData = null;
       isAdmin = false;
       
-      if (blockCheckInterval) {
-        clearInterval(blockCheckInterval);
-      }
-      if (deletionCheckInterval) {
-        clearInterval(deletionCheckInterval);
-      }
-      if (userDataListener) {
-        userDataListener.off();
-        userDataListener = null;
-      }
+      cleanupListeners();
       
       if (userPresenceRef) {
         userPresenceRef.remove();
@@ -1321,13 +1877,14 @@
       if (googleAuthStep) googleAuthStep.style.display = 'block';
       if (pendingApproval) pendingApproval.style.display = 'none';
       if (accountBlocked) accountBlocked.style.display = 'none';
+      if (rejectionCooldown) rejectionCooldown.style.display = 'none';
       
       authScreen.style.display = 'flex';
       appScreen.style.display = 'none';
     }
   });
 
-  // Chat Functions  
+  // Chat Functions
   function startChatListeners() {
     if (!messagesArea) return;
     
@@ -1341,9 +1898,10 @@
       </div>
     `;
 
-    const messagesRef = database.ref('messages').limitToLast(50);
+    if (listeners.messages) listeners.messages.off();
+    listeners.messages = database.ref('messages').limitToLast(50);
     
-    messagesRef.once('value', (snapshot) => {
+    listeners.messages.once('value', (snapshot) => {
       if (snapshot.exists()) {
         messagesArea.innerHTML = '';
         snapshot.forEach((childSnapshot) => {
@@ -1353,14 +1911,21 @@
       }
     });
 
-    messagesRef.on('child_added', (snapshot) => {
+    listeners.messages.on('child_added', (snapshot) => {
       if (!document.querySelector(`[data-message-id="${snapshot.key}"]`)) {
         renderMessage(snapshot.val(), snapshot.key);
-        messagesArea.scrollTop = messagesArea.scrollHeight;
+        
+        // Auto-scroll if near bottom
+        if (messagesArea.scrollHeight - messagesArea.scrollTop - messagesArea.clientHeight < 100) {
+          messagesArea.scrollTop = messagesArea.scrollHeight;
+        } else {
+          // Show scroll to bottom button
+          if (scrollBottomBtn) scrollBottomBtn.style.display = 'flex';
+        }
       }
     });
 
-    messagesRef.on('child_removed', (snapshot) => {
+    listeners.messages.on('child_removed', (snapshot) => {
       const messageEl = document.querySelector(`[data-message-id="${snapshot.key}"]`);
       if (messageEl) {
         messageEl.style.animation = 'messageSlide 0.3s ease reverse';
@@ -1368,13 +1933,31 @@
       }
     });
 
-    const presenceRef = database.ref('presence');
-    presenceRef.on('value', (snapshot) => {
+    if (listeners.presence) listeners.presence.off();
+    listeners.presence = database.ref('presence');
+    listeners.presence.on('value', (snapshot) => {
       const users = snapshot.val() || {};
       const onlineUsers = Object.values(users).filter(u => u.isOnline);
       if (onlineCount) onlineCount.textContent = `${onlineUsers.length} online`;
     });
+    
+    setupTypingIndicators();
   }
+
+  // Scroll to bottom button
+  scrollBottomBtn?.addEventListener('click', () => {
+    if (messagesArea) {
+      messagesArea.scrollTop = messagesArea.scrollHeight;
+      scrollBottomBtn.style.display = 'none';
+    }
+  });
+
+  // Hide scroll button when scrolling near bottom
+  messagesArea?.addEventListener('scroll', () => {
+    if (messagesArea.scrollHeight - messagesArea.scrollTop - messagesArea.clientHeight < 100) {
+      if (scrollBottomBtn) scrollBottomBtn.style.display = 'none';
+    }
+  });
 
   function renderMessage(data, messageId) {
     if (!messagesArea) return;
@@ -1390,7 +1973,7 @@
     messageDiv.className = 'message';
     messageDiv.dataset.messageId = messageId;
     
-    if (data.userId === currentUser.uid) {
+    if (data.userId === currentUser?.uid) {
       messageDiv.classList.add('own');
     }
     
@@ -1398,37 +1981,47 @@
       messageDiv.classList.add('admin');
     }
     
+    if (data.type === 'system') {
+      messageDiv.classList.add('system');
+    }
+    
     const time = data.timestamp ? new Date(data.timestamp).toLocaleTimeString('pl-PL', {
       hour: '2-digit',
       minute: '2-digit'
     }) : '';
     
-    const authorClass = data.isAdmin ? 'admin' : '';
-    const authorPrefix = data.isAdmin ? '👑 ' : '';
-    
-    messageDiv.innerHTML = `
-      <div class="message-header">
-        <span class="message-author ${authorClass}">${authorPrefix}${escapeHtml(data.author)}</span>
-        <span class="message-time">${time}</span>
-      </div>
-      <div class="message-content" data-text="${escapeHtml(data.text)}">${escapeHtml(data.text)}</div>
-    `;
+    if (data.type === 'system') {
+      messageDiv.innerHTML = `
+        <div class="message-content">${escapeHtml(data.text)}</div>
+      `;
+    } else {
+      const authorClass = data.isAdmin ? 'admin' : '';
+      const authorPrefix = data.isAdmin ? '👑 ' : '';
+      
+      messageDiv.innerHTML = `
+        <div class="message-header">
+          <span class="message-author ${authorClass}">${authorPrefix}${escapeHtml(data.author)}</span>
+          <span class="message-time">${time}</span>
+        </div>
+        <div class="message-content" data-text="${escapeHtml(data.text)}">${escapeHtml(data.text)}</div>
+      `;
+    }
     
     const messageContent = messageDiv.querySelector('.message-content');
-    messageContent.addEventListener('contextmenu', (e) => {
+    messageContent?.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       showContextMenu(e, messageId, data.text, data.userId);
     });
     
     let pressTimer;
-    messageContent.addEventListener('touchstart', (e) => {
+    messageContent?.addEventListener('touchstart', (e) => {
       pressTimer = setTimeout(() => {
         e.preventDefault();
         showContextMenu(e.touches[0], messageId, data.text, data.userId);
       }, 500);
     });
     
-    messageContent.addEventListener('touchend', () => {
+    messageContent?.addEventListener('touchend', () => {
       clearTimeout(pressTimer);
     });
     
@@ -1444,7 +2037,7 @@
       contextMenu.style.top = `${e.pageY}px`;
       
       if (deleteMessageBtn) {
-        if (isAdmin || messageUserId === currentUser.uid) {
+        if (isAdmin || messageUserId === currentUser?.uid) {
           deleteMessageBtn.style.display = 'flex';
         } else {
           deleteMessageBtn.style.display = 'none';
@@ -1475,7 +2068,7 @@
       }
       document.body.removeChild(ta);
     }
-    contextMenu.classList.remove('show');
+    contextMenu?.classList.remove('show');
   });
 
   deleteMessageBtn?.addEventListener('click', async () => {
@@ -1488,7 +2081,7 @@
       showToast('Błąd usuwania wiadomości', 'error');
       console.error('Delete error:', error);
     }
-    contextMenu.classList.remove('show');
+    contextMenu?.classList.remove('show');
   });
 
   // Chat form
@@ -1517,6 +2110,12 @@
       
       messageInput.value = '';
       messageInput.focus();
+      
+      // Clear typing indicator
+      if (isTyping) {
+        isTyping = false;
+        await database.ref(`typing/${currentUser.uid}`).remove();
+      }
     } catch (error) {
       showToast('Błąd wysyłania wiadomości', 'error');
       console.error('Send error:', error);
@@ -1543,13 +2142,7 @@
   function decode(text) {
     const chars = Array.from(text);
     return chars.map(ch => {
-      if (reverseMap[ch]) {
-        const options = reverseMap[ch];
-        if (options.length === 1) return options[0];
-        if (options.includes(ambiguityPreference)) return ambiguityPreference;
-        return options[0];
-      }
-      return ch;
+      return reverseMap[ch] || ch;
     }).join('');
   }
 
@@ -1564,25 +2157,79 @@
   function updateCounts() {
     if (!inputEl || !outputEl) return;
     const inLen = Array.from(inputEl.value).length;
-    const outLen = Array.from(outputEl.value).length;
+    const outLen = Array.from(outputEl.textContent).length;
     if (inputCount) inputCount.textContent = `${inLen} ${pluralize(inLen, 'znak', 'znaki', 'znaków')}`;
     if (outputCount) outputCount.textContent = `${outLen} ${pluralize(outLen, 'znak', 'znaki', 'znaków')}`;
   }
 
+  async function loadEncryptionStats() {
+    try {
+      const snapshot = await database.ref('system/stats/totalEncryptions').once('value');
+      encodedCount = snapshot.val() || 0;
+      if (totalEncoded) totalEncoded.textContent = encodedCount;
+    } catch (error) {
+      console.error('Error loading encryption stats:', error);
+    }
+  }
+
+  async function incrementEncryptionStats() {
+    try {
+      encodedCount++;
+      if (totalEncoded) totalEncoded.textContent = encodedCount;
+      await database.ref('system/stats/totalEncryptions').set(encodedCount);
+    } catch (error) {
+      console.error('Error updating encryption stats:', error);
+    }
+  }
+
+  let transformTimeout;
   function transform() {
     if (!inputEl || !outputEl) return;
-    const text = inputEl.value || '';
-    const result = cipherMode === 'encode' ? encode(text) : decode(text);
-    outputEl.value = result;
-    updateCounts();
+    
+    // Show typing indicator
+    if (typingIndicator && inputEl.value.length > 0) {
+      typingIndicator.style.display = 'flex';
+    }
+    
+    clearTimeout(transformTimeout);
+    transformTimeout = setTimeout(() => {
+      const text = inputEl.value || '';
+      const result = cipherMode === 'encode' ? encode(text) : decode(text);
+      
+      // Update output with animation
+      outputEl.style.opacity = '0';
+      setTimeout(() => {
+        outputEl.textContent = result;
+        outputEl.style.opacity = '1';
+      }, 150);
+      
+      updateCounts();
+      
+      // Hide typing indicator
+      if (typingIndicator) {
+        typingIndicator.style.display = 'none';
+      }
+      
+      // Track encryption if encoding and has result
+      if (cipherMode === 'encode' && result.length > 0 && text !== lastEncodedText) {
+        lastEncodedText = text;
+        incrementEncryptionStats();
+      }
+    }, 300);
   }
+
+  let lastEncodedText = '';
 
   function setMode(mode) {
     cipherMode = mode;
     const isDecode = mode === 'decode';
+    
     if (btnEncode) btnEncode.classList.toggle('active', !isDecode);
     if (btnDecode) btnDecode.classList.toggle('active', isDecode);
-    if (ambiguityWrap) ambiguityWrap.style.display = isDecode ? 'flex' : 'none';
+    
+    if (inputLabel) inputLabel.textContent = isDecode ? 'Tekst do odszyfrowania' : 'Tekst do zaszyfrowania';
+    if (outputLabel) outputLabel.textContent = isDecode ? 'Odszyfrowany tekst' : 'Zaszyfrowany tekst';
+    
     transform();
   }
 
@@ -1610,63 +2257,80 @@
 
   // Cipher Event Handlers
   inputEl?.addEventListener('input', transform);
-  
-  ambiguitySelect?.addEventListener('change', (e) => {
-    ambiguityPreference = e.target.value;
-    localStorage.setItem('ambiguityPreference', ambiguityPreference);
-    if (cipherMode === 'decode') transform();
-  });
 
   btnEncode?.addEventListener('click', () => setMode('encode'));
   btnDecode?.addEventListener('click', () => setMode('decode'));
 
+  btnPaste?.addEventListener('click', async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (inputEl) {
+        inputEl.value = text;
+        transform();
+        inputEl.focus();
+        showToast('Wklejono tekst', 'success');
+      }
+    } catch {
+      showToast('Nie można wkleić - brak uprawnień', 'error');
+    }
+  });
+
   btnClear?.addEventListener('click', () => {
     if (inputEl) inputEl.value = '';
-    transform();
+    if (outputEl) outputEl.textContent = '';
+    updateCounts();
     if (inputEl) inputEl.focus();
     showToast('Wyczyszczono', 'success');
   });
 
   btnSwap?.addEventListener('click', () => {
     if (inputEl && outputEl) {
-      inputEl.value = outputEl.value;
+      inputEl.value = outputEl.textContent;
       setMode(cipherMode === 'encode' ? 'decode' : 'encode');
       inputEl.focus();
       showToast('Zamieniono kierunek', 'success');
     }
   });
 
-  btnCopyIn?.addEventListener('click', async () => {
-    if (!inputEl?.value) {
-      showToast('Brak tekstu do skopiowania', 'warning');
-      return;
-    }
-    const ok = await copyToClipboard(inputEl.value);
-    showToast(ok ? 'Skopiowano tekst wejściowy' : 'Błąd kopiowania', ok ? 'success' : 'error');
-  });
-
   btnCopyOut?.addEventListener('click', async () => {
-    if (!outputEl?.value) {
+    const text = outputEl?.textContent;
+    if (!text) {
       showToast('Brak wyniku do skopiowania', 'warning');
       return;
     }
-    const ok = await copyToClipboard(outputEl.value);
-    showToast(ok ? 'Skopiowano wynik' : 'Błąd kopiowania', ok ? 'success' : 'error');
+    
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      // Show success animation
+      if (copySuccess) {
+        copySuccess.style.display = 'block';
+        setTimeout(() => {
+          copySuccess.style.display = 'none';
+        }, 2000);
+      }
+      showToast('Skopiowano wynik', 'success');
+    } else {
+      showToast('Błąd kopiowania', 'error');
+    }
   });
 
   // Initialize cipher
-  const savedPref = localStorage.getItem('ambiguityPreference');
-  if (savedPref) {
-    ambiguityPreference = savedPref;
-    if (ambiguitySelect) ambiguitySelect.value = savedPref;
-  }
-  
   setMode('encode');
-  if (inputEl && outputEl) transform();
+  if (inputEl && outputEl) {
+    transform();
+    
+    // Add smooth transitions
+    outputEl.style.transition = 'opacity 0.3s ease';
+  }
 
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      // Allow Ctrl+Enter to submit chat
+      if (e.ctrlKey && e.key === 'Enter' && e.target.id === 'message-input') {
+        e.preventDefault();
+        chatForm?.dispatchEvent(new Event('submit'));
+      }
       return;
     }
     
@@ -1684,31 +2348,161 @@
           e.preventDefault();
           if (messageInput) messageInput.focus();
           break;
+        case 'e':
+          e.preventDefault();
+          setMode('encode');
+          break;
+        case 'd':
+          e.preventDefault();
+          setMode('decode');
+          break;
       }
+    }
+  });
+
+  // Modal close on ESC
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (adminPanel && adminPanel.style.display === 'flex') {
+        adminPanel.style.display = 'none';
+      }
+      if (userSettingsModal && userSettingsModal.style.display === 'flex') {
+        userSettingsModal.style.display = 'none';
+      }
+      if (contextMenu && contextMenu.classList.contains('show')) {
+        contextMenu.classList.remove('show');
+      }
+    }
+  });
+
+  // Close modals on background click
+  adminPanel?.addEventListener('click', (e) => {
+    if (e.target === adminPanel) {
+      adminPanel.style.display = 'none';
+    }
+  });
+
+  userSettingsModal?.addEventListener('click', (e) => {
+    if (e.target === userSettingsModal) {
+      userSettingsModal.style.display = 'none';
     }
   });
 
   // Cleanup on unload
   window.addEventListener('beforeunload', () => {
-    if (blockCheckInterval) {
-      clearInterval(blockCheckInterval);
-    }
-    if (deletionCheckInterval) {
-      clearInterval(deletionCheckInterval);
-    }
-    if (userDataListener) {
-      userDataListener.off();
-      userDataListener = null;
-    }
+    cleanupListeners();
+    
     if (userPresenceRef) {
       userPresenceRef.remove();
     }
+    
+    if (isTyping && currentUser) {
+      database.ref(`typing/${currentUser.uid}`).remove();
+    }
   });
 
-  console.log('🚀 Alfawrogowie v2.3 - Full Security Edition');
+  // Performance monitoring
+  let lastActivityTime = Date.now();
+  document.addEventListener('mousemove', () => {
+    lastActivityTime = Date.now();
+  });
+
+  document.addEventListener('keypress', () => {
+    lastActivityTime = Date.now();
+  });
+
+  // Auto-logout after 30 minutes of inactivity
+  setInterval(() => {
+    if (currentUser && !isAdmin) {
+      const inactiveTime = Date.now() - lastActivityTime;
+      if (inactiveTime > 30 * 60 * 1000) { // 30 minutes
+        showToast('Wylogowano z powodu braku aktywności', 'warning');
+        auth.signOut();
+      }
+    }
+  }, 60000); // Check every minute
+
+  // Service worker registration (for future PWA support)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.log('ServiceWorker registration failed:', err);
+      });
+    });
+  }
+
+  // Initialize app
+  console.log('🚀 Alfawrogowie v3.0 - Enhanced Edition by Reapk');
   console.log('👑 First Google user becomes admin');
-  console.log('🔐 Real-time block & deletion monitoring active');
-  console.log('🛡️ Full account management enabled');
-  console.log('💬 Right-click messages for options');
+  console.log('🔐 Real-time settings & monitoring active');
+  console.log('🛡️ Full account management with cooldowns');
+  console.log('💬 Enhanced chat with typing indicators');
+  console.log('🎨 Multiple themes available');
+  console.log('📊 Statistics & activity tracking');
+  console.log('⚡ Performance optimized');
+  console.log('🔧 Powered by Reapk');
   console.log('📅 Build date: 2025-01-24');
+  
+  // Version check
+  const APP_VERSION = '3.0.0';
+  database.ref('system/version').once('value', (snapshot) => {
+    const serverVersion = snapshot.val();
+    if (serverVersion && serverVersion !== APP_VERSION) {
+      console.log(`📦 New version available: ${serverVersion}`);
+      showToast('Nowa wersja aplikacji jest dostępna. Odśwież stronę.', 'info');
+    }
+  });
+
+  // Set app version
+  if (isFirstUser()) {
+    database.ref('system/version').set(APP_VERSION);
+  }
+
+  // Activity logging for cipher usage
+  let cipherUsageCount = 0;
+  setInterval(() => {
+    if (cipherUsageCount > 0) {
+      database.ref('system/stats/cipherUsage').push({
+        userId: currentUser?.uid,
+        count: cipherUsageCount,
+        timestamp: firebase.database.ServerValue.TIMESTAMP
+      });
+      cipherUsageCount = 0;
+    }
+  }, 60000); // Log every minute
+
+  inputEl?.addEventListener('input', () => {
+    cipherUsageCount++;
+  });
+
+  // Add visual feedback for admin actions
+  function addActionFeedback(element, type = 'success') {
+    const originalBg = element.style.background;
+    element.style.background = type === 'success' ? '#22c55e' : '#ef4444';
+    element.style.transition = 'background 0.3s ease';
+    
+    setTimeout(() => {
+      element.style.background = originalBg;
+    }, 300);
+  }
+
+  // Easter egg for developers
+  let konamiCode = [];
+  const konamiPattern = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
+  
+  document.addEventListener('keydown', (e) => {
+    konamiCode.push(e.key);
+    konamiCode = konamiCode.slice(-10);
+    
+    if (konamiCode.join(',') === konamiPattern.join(',')) {
+      showToast('🎮 Konami Code activated! Made with ❤️ by Reapk', 'success');
+      document.body.style.animation = 'pulse 1s ease';
+      setTimeout(() => {
+        document.body.style.animation = '';
+      }, 1000);
+    }
+  });
+
+  // Final initialization complete
+  console.log('✅ Application fully initialized');
 })();

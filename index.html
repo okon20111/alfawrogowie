@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>alfawrogowie — Ekskluzywny Szyfr & Czat</title>
-  <meta name="description" content="alfawrogowie — Szyfruj tekst i rozmawiaj w czasie rzeczywistym" />
+  <title>alfawrogowie — Ekskluzywny Szyfr & Czat | Reapk</title>
+  <meta name="description" content="alfawrogowie by Reapk — Szyfruj tekst i rozmawiaj w czasie rzeczywistym" />
+  <meta name="author" content="Reapk" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -27,6 +28,7 @@
         </div>
         <h1 class="auth-title">alfawrogowie</h1>
         <p class="auth-subtitle">Ekskluzywny dostęp do szyfru i czatu</p>
+        <p class="auth-publisher">by <span class="reapk-brand">Reapk</span></p>
       </div>
 
       <div class="auth-content">
@@ -66,12 +68,23 @@
             <button id="refresh-block-btn" class="btn-secondary">Odśwież</button>
           </div>
         </div>
+        
+        <div id="rejection-cooldown" style="display: none;">
+          <div class="cooldown-card">
+            <div class="cooldown-icon">⏰</div>
+            <h3>Prośba odrzucona</h3>
+            <p>Twoja poprzednia prośba została odrzucona.</p>
+            <p id="cooldown-message"></p>
+            <div class="cooldown-timer" id="cooldown-timer"></div>
+            <button id="retry-request-btn" class="btn-secondary" style="display: none;">Wyślij ponownie</button>
+          </div>
+        </div>
 
         <div id="auth-error" class="auth-error"></div>
       </div>
 
       <div class="auth-footer">
-        <p class="auth-note">🔒 Bezpieczne logowanie</p>
+        <p class="auth-note">🔒 Bezpieczne logowanie • Powered by <span class="reapk-link">Reapk</span></p>
       </div>
     </div>
   </div>
@@ -92,7 +105,7 @@
           </div>
           <div class="brand-text">
             <h1 class="brand-title">alfawrogowie</h1>
-            <p class="brand-subtitle">Szyfr & Czat</p>
+            <p class="brand-subtitle">Szyfr & Czat • by Reapk</p>
           </div>
         </div>
         
@@ -109,7 +122,7 @@
           </nav>
           
           <div class="user-section">
-            <div id="admin-notifications" class="admin-badge" style="display: none;">
+            <div id="admin-notifications" class="notif-badge" style="display: none;">
               <span class="badge-count">0</span>
             </div>
             <button class="user-btn" id="user-menu-btn">
@@ -152,48 +165,54 @@
           <div class="panel-header">
             <div class="panel-title">
               <h2>Konwerter Szyfru</h2>
-              <span class="panel-badge">v2.0</span>
+              <span class="panel-badge">v3.0</span>
             </div>
-            <div class="panel-options">
-              <label class="ambiguity-selector" id="ambiguity-wrap">
-                <span class="selector-label">Symbol ⍟:</span>
-                <select id="ambiguity-select" class="selector-input">
-                  <option value="ę">→ ę</option>
-                  <option value="ś">→ ś</option>
-                </select>
-              </label>
+            <div class="panel-stats">
+              <span class="stat-item">
+                <span class="stat-icon">📝</span>
+                <span class="stat-value" id="total-encoded">0</span>
+                <span class="stat-label">zaszyfrowano</span>
+              </span>
             </div>
           </div>
 
-          <div class="cipher-grid">
-            <div class="cipher-box input-box">
-              <div class="box-header">
-                <h3 class="box-title">Wejście</h3>
-                <div class="box-actions">
-                  <button class="action-btn" id="btn-clear" title="Wyczyść">
-                    <svg viewBox="0 0 24 24" width="18" height="18">
-                      <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
+          <div class="cipher-container">
+            <div class="cipher-input-wrapper">
+              <div class="input-header">
+                <span class="input-label" id="input-label">Tekst do zaszyfrowania</span>
+                <div class="input-actions">
+                  <button class="input-action" id="btn-paste" title="Wklej">
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                      <path fill="currentColor" d="M19 2h-4.18C14.4.84 13.3 0 12 0S9.6.84 9.18 2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2M12 2a1 1 0 0 1 1 1a1 1 0 0 1-1 1a1 1 0 0 1-1-1a1 1 0 0 1 1-1M7 7h10v2H7V7m5 12H7v-2h5v2m5-4H7v-2h10v2z"/>
                     </svg>
                   </button>
-                  <button class="action-btn" id="btn-copy-in" title="Kopiuj">
-                    <svg viewBox="0 0 24 24" width="18" height="18">
-                      <path fill="currentColor" d="M19 21H8V7h11m0-2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2m-3-4H4a2 2 0 0 0-2 2v14h2V3h12V1z"/>
+                  <button class="input-action" id="btn-clear" title="Wyczyść">
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                      <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
                     </svg>
                   </button>
                 </div>
               </div>
-              <textarea 
-                id="input" 
-                class="cipher-textarea"
-                placeholder="Wpisz tekst do zaszyfrowania lub odszyfrowania..."
-                spellcheck="false"
-              ></textarea>
-              <div class="box-footer">
-                <span id="input-count" class="char-count">0 znaków</span>
+              <div class="input-container">
+                <textarea 
+                  id="input" 
+                  class="cipher-input"
+                  placeholder="Zacznij pisać..."
+                  spellcheck="false"
+                ></textarea>
+                <div class="input-footer">
+                  <span id="input-count" class="char-count">0 znaków</span>
+                  <span class="typing-indicator" id="typing-indicator" style="display: none;">
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div class="cipher-swap">
+            <div class="cipher-arrow">
+              <div class="arrow-line"></div>
               <button class="swap-btn" id="btn-swap" title="Zamień kierunek">
                 <svg viewBox="0 0 24 24" width="24" height="24">
                   <path fill="currentColor" d="M6.99 11L3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z"/>
@@ -201,27 +220,24 @@
               </button>
             </div>
 
-            <div class="cipher-box output-box">
-              <div class="box-header">
-                <h3 class="box-title">Wynik</h3>
-                <div class="box-actions">
-                  <button class="action-btn primary" id="btn-copy-out" title="Kopiuj wynik">
-                    <svg viewBox="0 0 24 24" width="18" height="18">
+            <div class="cipher-output-wrapper">
+              <div class="output-header">
+                <span class="output-label" id="output-label">Zaszyfrowany tekst</span>
+                <div class="output-actions">
+                  <button class="output-action primary" id="btn-copy-out" title="Kopiuj wynik">
+                    <svg viewBox="0 0 24 24" width="16" height="16">
                       <path fill="currentColor" d="M19 21H8V7h11m0-2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2m-3-4H4a2 2 0 0 0-2 2v14h2V3h12V1z"/>
                     </svg>
                     <span>Kopiuj</span>
                   </button>
                 </div>
               </div>
-              <textarea 
-                id="output" 
-                class="cipher-textarea output"
-                placeholder="Tutaj pojawi się wynik"
-                readonly
-                spellcheck="false"
-              ></textarea>
-              <div class="box-footer">
-                <span id="output-count" class="char-count">0 znaków</span>
+              <div class="output-container">
+                <div id="output" class="cipher-output"></div>
+                <div class="output-footer">
+                  <span id="output-count" class="char-count">0 znaków</span>
+                  <span class="copy-success" id="copy-success" style="display: none;">✓ Skopiowano!</span>
+                </div>
               </div>
             </div>
           </div>
@@ -236,6 +252,13 @@
                 <span class="online-dot"></span>
                 <span id="online-count">0 online</span>
               </div>
+            </div>
+            <div class="chat-actions">
+              <button class="chat-action" id="scroll-bottom" title="Przewiń na dół" style="display: none;">
+                <svg viewBox="0 0 24 24" width="20" height="20">
+                  <path fill="currentColor" d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+                </svg>
+              </button>
             </div>
           </div>
 
@@ -252,7 +275,12 @@
 
             <div id="chat-disabled" class="chat-disabled" style="display: none;">
               <span>🚫</span>
-              <p>Czat został wyłączony dla Twojego konta</p>
+              <p>Czat został wyłączony</p>
+              <p class="chat-disabled-reason" id="chat-disabled-reason">przez administratora</p>
+            </div>
+
+            <div class="typing-users" id="typing-users" style="display: none;">
+              <span class="typing-text"></span>
             </div>
 
             <form class="chat-input-wrapper" id="chat-form">
@@ -276,13 +304,13 @@
     </main>
 
     <footer class="app-footer">
-      <p>Made with <span class="heart">♥</span> for polskie litery — alfawrogowie © 2025</p>
+      <p>Made with <span class="heart">♥</span> for polskie litery — alfawrogowie © 2025 • Powered by <a href="#" class="reapk-footer">Reapk</a></p>
     </footer>
   </div>
 
   <!-- Admin Panel Modal -->
   <div id="admin-panel" class="modal">
-    <div class="modal-content">
+    <div class="modal-content large">
       <div class="modal-header">
         <h2>Panel Administratora</h2>
         <button class="modal-close" id="close-admin-panel">&times;</button>
@@ -299,6 +327,12 @@
         </button>
         <button class="admin-tab" data-tab="settings">
           Ustawienia
+        </button>
+        <button class="admin-tab" data-tab="stats">
+          Statystyki
+        </button>
+        <button class="admin-tab" data-tab="tools">
+          Narzędzia
         </button>
       </div>
 
@@ -328,16 +362,130 @@
 
         <!-- Settings Tab -->
         <div id="settings-tab" class="tab-content">
-          <div class="settings-section">
-            <h3>Ustawienia globalne</h3>
-            <label class="setting-item">
-              <input type="checkbox" id="global-chat-enabled" checked />
-              <span>Czat włączony globalnie</span>
-            </label>
-            <label class="setting-item">
-              <input type="checkbox" id="auto-approve" />
-              <span>Automatyczne zatwierdzanie nowych użytkowników</span>
-            </label>
+          <div class="settings-grid">
+            <div class="settings-section">
+              <h3>Ustawienia globalne</h3>
+              <label class="setting-item">
+                <input type="checkbox" id="global-chat-enabled" checked />
+                <span>Czat włączony globalnie</span>
+              </label>
+              <label class="setting-item">
+                <input type="checkbox" id="auto-approve" />
+                <span>Automatyczne zatwierdzanie nowych użytkowników</span>
+              </label>
+              <label class="setting-item">
+                <input type="checkbox" id="enable-typing-indicators" checked />
+                <span>Pokazuj wskaźniki pisania</span>
+              </label>
+            </div>
+            
+            <div class="settings-section">
+              <h3>Polityka odrzuconych próśb</h3>
+              <p class="settings-description">Określ, kiedy odrzuceni użytkownicy mogą ponownie wysłać prośbę o dostęp.</p>
+              <select id="rejection-cooldown-select" class="settings-select">
+                <option value="0">Od razu</option>
+                <option value="900000">Za 15 minut</option>
+                <option value="1800000">Za 30 minut</option>
+                <option value="3600000">Za 1 godzinę</option>
+                <option value="10800000">Za 3 godziny</option>
+                <option value="86400000">Za 24 godziny</option>
+                <option value="172800000">Za 48 godzin</option>
+                <option value="-1">Nigdy więcej</option>
+              </select>
+            </div>
+            
+            <div class="settings-section">
+              <h3>Motyw aplikacji</h3>
+              <div class="theme-selector">
+                <button class="theme-option active" data-theme="dark">
+                  <span class="theme-preview dark"></span>
+                  <span>Ciemny</span>
+                </button>
+                <button class="theme-option" data-theme="midnight">
+                  <span class="theme-preview midnight"></span>
+                  <span>Północny</span>
+                </button>
+                <button class="theme-option" data-theme="cosmic">
+                  <span class="theme-preview cosmic"></span>
+                  <span>Kosmiczny</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Statistics Tab -->
+        <div id="stats-tab" class="tab-content">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon-lg">👥</div>
+              <div class="stat-info">
+                <h4>Użytkownicy</h4>
+                <p class="stat-number" id="stat-total-users">0</p>
+                <span class="stat-desc">łącznie zarejestrowanych</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon-lg">💬</div>
+              <div class="stat-info">
+                <h4>Wiadomości</h4>
+                <p class="stat-number" id="stat-total-messages">0</p>
+                <span class="stat-desc">wysłanych na czacie</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon-lg">🔐</div>
+              <div class="stat-info">
+                <h4>Szyfrowania</h4>
+                <p class="stat-number" id="stat-total-encryptions">0</p>
+                <span class="stat-desc">wykonanych operacji</span>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon-lg">🟢</div>
+              <div class="stat-info">
+                <h4>Online teraz</h4>
+                <p class="stat-number" id="stat-online-now">0</p>
+                <span class="stat-desc">aktywnych użytkowników</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="activity-section">
+            <h3>Ostatnia aktywność</h3>
+            <div id="activity-log" class="activity-log">
+              <div class="empty-state">
+                <span>📊</span>
+                <p>Brak aktywności do wyświetlenia</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tools Tab -->
+        <div id="tools-tab" class="tab-content">
+          <div class="tools-grid">
+            <div class="tool-card">
+              <h4>🧹 Czyszczenie czatu</h4>
+              <p>Usuń wszystkie wiadomości z czatu</p>
+              <button class="btn-danger" id="clear-chat-btn">Wyczyść czat</button>
+            </div>
+            <div class="tool-card">
+              <h4>📥 Eksport danych</h4>
+              <p>Pobierz dane użytkowników w formacie JSON</p>
+              <button class="btn-primary" id="export-users-btn">Eksportuj użytkowników</button>
+            </div>
+            <div class="tool-card">
+              <h4>📢 Powiadomienie globalne</h4>
+              <p>Wyślij wiadomość systemową do wszystkich</p>
+              <input type="text" id="broadcast-message" placeholder="Treść powiadomienia..." />
+              <button class="btn-warning" id="broadcast-btn">Wyślij powiadomienie</button>
+            </div>
+            <div class="tool-card">
+              <h4>🔄 Reset systemu</h4>
+              <p>Przywróć domyślne ustawienia</p>
+              <button class="btn-secondary" id="reset-settings-btn">Reset ustawień</button>
+            </div>
           </div>
         </div>
       </div>
@@ -397,10 +545,6 @@
               <label>
                 <input type="number" id="block-minutes" min="0" placeholder="0" />
                 <span>Minut</span>
-              </label>
-              <label>
-                <input type="number" id="block-seconds" min="0" placeholder="0" />
-                <span>Sekund</span>
               </label>
             </div>
             <input type="text" id="block-reason-input" placeholder="Powód blokady (opcjonalnie)" />
