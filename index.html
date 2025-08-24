@@ -360,6 +360,7 @@
           <div class="user-info-details">
             <h3 id="settings-user-email">user@example.com</h3>
             <p id="settings-user-joined">Dołączył: -</p>
+            <p id="current-block-info" style="display: none; color: #ef4444; font-weight: 600;"></p>
           </div>
         </div>
 
@@ -374,6 +375,7 @@
           <div class="block-options">
             <button class="btn-warning" id="temp-block-btn">Zablokuj tymczasowo</button>
             <button class="btn-danger" id="perm-block-btn">Zablokuj na stałe</button>
+            <button class="btn-danger" id="security-block-btn">Zablokuj ze względów bezpieczeństwa</button>
             <button class="btn-success" id="unblock-btn" style="display: none;">Odblokuj</button>
           </div>
 
@@ -396,10 +398,19 @@
                 <input type="number" id="block-minutes" min="0" placeholder="0" />
                 <span>Minut</span>
               </label>
+              <label>
+                <input type="number" id="block-seconds" min="0" placeholder="0" />
+                <span>Sekund</span>
+              </label>
             </div>
             <input type="text" id="block-reason-input" placeholder="Powód blokady (opcjonalnie)" />
             <button class="btn-warning" id="confirm-temp-block">Potwierdź blokadę</button>
           </div>
+          
+          <h4 style="margin-top: 24px;">Usuwanie konta</h4>
+          <button class="btn-danger" id="delete-user-btn" style="background: linear-gradient(135deg, #991b1b, #7f1d1d);">
+            🗑️ Usuń konto użytkownika
+          </button>
         </div>
 
         <div class="modal-footer">

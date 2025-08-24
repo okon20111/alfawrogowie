@@ -62,6 +62,7 @@
   const tempBlockBtn = document.getElementById('temp-block-btn');
   const permBlockBtn = document.getElementById('perm-block-btn');
   const securityBlockBtn = document.getElementById('security-block-btn');
+  const deleteUserBtn = document.getElementById('delete-user-btn');
   const unblockBtn = document.getElementById('unblock-btn');
   const tempBlockForm = document.getElementById('temp-block-form');
   const confirmTempBlock = document.getElementById('confirm-temp-block');
@@ -102,6 +103,8 @@
     autoApprove: false
   };
   let blockCheckInterval = null;
+  let deletionCheckInterval = null;
+  let userDataListener = null;
 
   // Cipher Map
   const cipherMap = {
@@ -183,6 +186,48 @@
     return parts.length > 0 ? parts.join(', ') : 'Mniej niż minuta';
   }
 
+  // Account deletion monitoring
+  function startDeletionMonitoring() {
+    if (!currentUser || isAdmin) return;
+    
+    // Clear existing interval
+    if (deletionCheckInterval) {
+      clearInterval(deletionCheckInterval);
+    }
+    
+    // Clear existing listener
+    if (userDataListener) {
+      userDataListener.off();
+      userDataListener = null;
+    }
+    
+    // Real-time listener for account deletion
+    userDataListener = database.ref(`users/${currentUser.uid}`);
+    userDataListener.on('value', async (snapshot) => {
+      if (!snapshot.exists() && currentUser) {
+        // Account was deleted from database
+        console.log('⚠️ Account deleted from database');
+        
+        // Force logout
+        appScreen.style.display = 'none';
+        authScreen.style.display = 'flex';
+        googleAuthStep.style.display = 'block';
+        pendingApproval.style.display = 'none';
+        accountBlocked.style.display = 'none';
+        
+        showAuthError('Twoje konto zostało usunięte');
+        
+        // Clean up
+        if (userPresenceRef) {
+          await userPresenceRef.remove();
+        }
+        
+        // Sign out from Firebase Auth
+        await auth.signOut();
+      }
+    });
+  }
+
   // Real-time block monitoring
   function startBlockMonitoring() {
     if (!currentUser || isAdmin) return;
@@ -201,11 +246,19 @@
       
       try {
         const userSnapshot = await database.ref(`users/${currentUser.uid}`).once('value');
+        
+        if (!userSnapshot.exists()) {
+          // Account deleted
+          clearInterval(blockCheckInterval);
+          return; // Will be handled by deletion monitoring
+        }
+        
         const userData = userSnapshot.val();
         
-        if (userData && userData.blocked) {
-          // User got blocked - kick them out immediately
+        if (userData && userData.blocked && !currentUserData.blocked) {
+          // User just got blocked
           clearInterval(blockCheckInterval);
+          currentUserData.blocked = true;
           
           // Force logout
           appScreen.style.display = 'none';
@@ -396,8 +449,10 @@
     if (isAdmin) {
       userMenuBtn.classList.add('admin');
       userRoleSpan.classList.add('admin');
-      document.querySelector('.dropdown-avatar').style.background = 
-        'linear-gradient(135deg, #ff5757, #ff8080)';
+      const dropdownAvatar = document.querySelector('.dropdown-avatar');
+      if (dropdownAvatar) {
+        dropdownAvatar.style.background = 'linear-gradient(135deg, #ff5757, #ff8080)';
+      }
       setupAdminPanel();
       console.log('👑 Logged as ADMINISTRATOR');
     } else {
@@ -406,8 +461,9 @@
       adminPanelBtn.style.display = 'none';
       console.log('👤 Logged as USER');
       
-      // Start monitoring for blocks (only for non-admin users)
+      // Start monitoring for blocks and deletion (only for non-admin users)
       startBlockMonitoring();
+      startDeletionMonitoring();
     }
     
     if (currentUserData && (!globalSettings.chatEnabled || currentUserData.chatEnabled === false)) {
@@ -432,7 +488,8 @@
     googleAuthStep.style.display = 'none';
     pendingApproval.style.display = 'block';
     accountBlocked.style.display = 'none';
-    document.querySelector('.pending-email').textContent = user.email;
+    const pendingEmail = document.querySelector('.pending-email');
+    if (pendingEmail) pendingEmail.textContent = user.email;
   }
 
   function showBlockedScreen(userData) {
@@ -446,21 +503,24 @@
       blockReason = 'Konto zablokowane ze względów bezpieczeństwa';
     }
     
-    document.getElementById('block-reason-text').textContent = blockReason;
+    const blockReasonEl = document.getElementById('block-reason-text');
+    if (blockReasonEl) blockReasonEl.textContent = blockReason;
     
     const blockExpiresEl = document.getElementById('block-expires');
-    if (!userData.blockPermanent && userData.blockExpiry) {
-      if (Date.now() < userData.blockExpiry) {
-        blockExpiresEl.textContent = `Blokada wygasa za: ${formatRemainingTime(userData.blockExpiry)}`;
+    if (blockExpiresEl) {
+      if (!userData.blockPermanent && userData.blockExpiry) {
+        if (Date.now() < userData.blockExpiry) {
+          blockExpiresEl.textContent = `Blokada wygasa za: ${formatRemainingTime(userData.blockExpiry)}`;
+          blockExpiresEl.style.display = 'block';
+        } else {
+          blockExpiresEl.style.display = 'none';
+        }
+      } else if (userData.blockPermanent) {
+        blockExpiresEl.textContent = 'Blokada permanentna';
         blockExpiresEl.style.display = 'block';
       } else {
         blockExpiresEl.style.display = 'none';
       }
-    } else if (userData.blockPermanent) {
-      blockExpiresEl.textContent = 'Blokada permanentna';
-      blockExpiresEl.style.display = 'block';
-    } else {
-      blockExpiresEl.style.display = 'none';
     }
   }
 
@@ -545,14 +605,15 @@
       if (snapshot.exists()) {
         snapshot.forEach((child) => {
           const userData = child.val();
-          // Only show approved non-admin users in the list
-          if (userData.approved && !userData.isAdmin) {
-            allUsers[child.key] = userData;
-          }
+          // Store all users but filter display
+          allUsers[child.key] = userData;
         });
       }
       
-      if (usersCount) usersCount.textContent = Object.keys(allUsers).length;
+      // Count only non-admin approved users
+      const regularUsers = Object.values(allUsers).filter(u => u.approved && !u.isAdmin);
+      if (usersCount) usersCount.textContent = regularUsers.length;
+      
       renderUsersList();
     });
   }
@@ -608,7 +669,9 @@
   function renderUsersList(searchTerm = '') {
     if (!usersList) return;
     
+    // Filter to show only approved non-admin users
     const usersArray = Object.entries(allUsers).filter(([uid, user]) => {
+      if (!user.approved || user.isAdmin) return false;
       if (!searchTerm) return true;
       const term = searchTerm.toLowerCase();
       return user.email.toLowerCase().includes(term) ||
@@ -649,7 +712,7 @@
           </div>
         </div>
         <div class="user-actions">
-          <button class="btn-settings" onclick="openUserSettings('${uid}')">
+          <button class="btn-settings" data-uid="${uid}">
             <svg viewBox="0 0 24 24" width="16" height="16">
               <path fill="currentColor" d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5a3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97c0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.08-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1c0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z"/>
             </svg>
@@ -658,6 +721,14 @@
         </div>
       </div>
     `).join('');
+    
+    // Add event listeners to settings buttons
+    document.querySelectorAll('.btn-settings').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const uid = btn.dataset.uid;
+        if (uid) openUserSettings(uid);
+      });
+    });
   }
 
   // Admin Actions - Global Functions for onclick
@@ -732,25 +803,31 @@
     }
   };
 
-  window.openUserSettings = async (uid) => {
+  function openUserSettings(uid) {
     if (!isAdmin) return;
     
     selectedUserId = uid;
     const user = allUsers[uid];
     
-    if (!user) return;
+    if (!user) {
+      showToast('Nie znaleziono użytkownika', 'error');
+      return;
+    }
     
-    settingsUserEmail.textContent = user.email;
-    settingsUserJoined.textContent = `Dołączył: ${formatDate(user.createdAt)}`;
-    settingsUserAvatar.textContent = (user.displayName || user.email)[0].toUpperCase();
+    // Update modal content
+    if (settingsUserEmail) settingsUserEmail.textContent = user.email;
+    if (settingsUserJoined) settingsUserJoined.textContent = `Dołączył: ${formatDate(user.createdAt)}`;
+    if (settingsUserAvatar) settingsUserAvatar.textContent = (user.displayName || user.email)[0].toUpperCase();
     
-    userChatEnabled.checked = user.chatEnabled !== false;
+    if (userChatEnabled) userChatEnabled.checked = user.chatEnabled !== false;
     
+    // Show/hide buttons based on block status
     if (user.blocked) {
-      tempBlockBtn.style.display = 'none';
-      permBlockBtn.style.display = 'none';
-      securityBlockBtn.style.display = 'none';
-      unblockBtn.style.display = 'inline-block';
+      if (tempBlockBtn) tempBlockBtn.style.display = 'none';
+      if (permBlockBtn) permBlockBtn.style.display = 'none';
+      if (securityBlockBtn) securityBlockBtn.style.display = 'none';
+      if (deleteUserBtn) deleteUserBtn.style.display = 'none';
+      if (unblockBtn) unblockBtn.style.display = 'inline-block';
       
       // Show block info
       const blockInfo = document.getElementById('current-block-info');
@@ -765,39 +842,44 @@
         blockInfo.style.display = 'block';
       }
     } else {
-      tempBlockBtn.style.display = 'inline-block';
-      permBlockBtn.style.display = 'inline-block';
-      securityBlockBtn.style.display = 'inline-block';
-      unblockBtn.style.display = 'none';
+      if (tempBlockBtn) tempBlockBtn.style.display = 'inline-block';
+      if (permBlockBtn) permBlockBtn.style.display = 'inline-block';
+      if (securityBlockBtn) securityBlockBtn.style.display = 'inline-block';
+      if (deleteUserBtn) deleteUserBtn.style.display = 'inline-block';
+      if (unblockBtn) unblockBtn.style.display = 'none';
       
       const blockInfo = document.getElementById('current-block-info');
       if (blockInfo) blockInfo.style.display = 'none';
     }
     
-    tempBlockForm.style.display = 'none';
+    if (tempBlockForm) tempBlockForm.style.display = 'none';
     
-    userSettingsModal.style.display = 'flex';
-  };
+    // Show modal
+    if (userSettingsModal) userSettingsModal.style.display = 'flex';
+  }
+
+  // Make openUserSettings available globally for onclick
+  window.openUserSettings = openUserSettings;
 
   // User Settings Modal Handlers
   closeUserSettings?.addEventListener('click', () => {
-    userSettingsModal.style.display = 'none';
+    if (userSettingsModal) userSettingsModal.style.display = 'none';
     selectedUserId = null;
   });
 
   tempBlockBtn?.addEventListener('click', () => {
-    tempBlockForm.style.display = 'block';
+    if (tempBlockForm) tempBlockForm.style.display = 'block';
   });
 
   confirmTempBlock?.addEventListener('click', async () => {
     if (!selectedUserId) return;
     
-    const months = parseInt(document.getElementById('block-months').value) || 0;
-    const days = parseInt(document.getElementById('block-days').value) || 0;
-    const hours = parseInt(document.getElementById('block-hours').value) || 0;
-    const minutes = parseInt(document.getElementById('block-minutes').value) || 0;
-    const seconds = parseInt(document.getElementById('block-seconds').value) || 0;
-    const reason = document.getElementById('block-reason-input').value || 'Naruszenie regulaminu';
+    const months = parseInt(document.getElementById('block-months')?.value) || 0;
+    const days = parseInt(document.getElementById('block-days')?.value) || 0;
+    const hours = parseInt(document.getElementById('block-hours')?.value) || 0;
+    const minutes = parseInt(document.getElementById('block-minutes')?.value) || 0;
+    const seconds = parseInt(document.getElementById('block-seconds')?.value) || 0;
+    const reason = document.getElementById('block-reason-input')?.value || 'Naruszenie regulaminu';
     
     if (months === 0 && days === 0 && hours === 0 && minutes === 0 && seconds === 0) {
       showToast('Podaj czas blokady', 'warning');
@@ -817,14 +899,8 @@
       });
       
       showToast('Użytkownik zablokowany tymczasowo', 'success');
-      userSettingsModal.style.display = 'none';
+      if (userSettingsModal) userSettingsModal.style.display = 'none';
       
-      // Force refresh user list
-      const snapshot = await database.ref(`users/${selectedUserId}`).once('value');
-      if (snapshot.exists()) {
-        allUsers[selectedUserId] = snapshot.val();
-        renderUsersList();
-      }
     } catch (error) {
       console.error('Block error:', error);
       showToast('Błąd blokowania: ' + error.message, 'error');
@@ -845,14 +921,8 @@
       });
       
       showToast('Użytkownik zablokowany na stałe', 'success');
-      userSettingsModal.style.display = 'none';
+      if (userSettingsModal) userSettingsModal.style.display = 'none';
       
-      // Force refresh
-      const snapshot = await database.ref(`users/${selectedUserId}`).once('value');
-      if (snapshot.exists()) {
-        allUsers[selectedUserId] = snapshot.val();
-        renderUsersList();
-      }
     } catch (error) {
       console.error('Block error:', error);
       showToast('Błąd blokowania: ' + error.message, 'error');
@@ -873,17 +943,71 @@
       });
       
       showToast('Użytkownik zablokowany ze względów bezpieczeństwa', 'success');
-      userSettingsModal.style.display = 'none';
+      if (userSettingsModal) userSettingsModal.style.display = 'none';
       
-      // Force refresh
-      const snapshot = await database.ref(`users/${selectedUserId}`).once('value');
-      if (snapshot.exists()) {
-        allUsers[selectedUserId] = snapshot.val();
-        renderUsersList();
-      }
     } catch (error) {
       console.error('Security block error:', error);
       showToast('Błąd blokowania: ' + error.message, 'error');
+    }
+  });
+
+  // POPRAWIONA FUNKCJA USUWANIA UŻYTKOWNIKA
+  deleteUserBtn?.addEventListener('click', async () => {
+    if (!selectedUserId) return;
+    
+    const user = allUsers[selectedUserId];
+    if (!user) return;
+    
+    if (!confirm(`UWAGA! Czy na pewno chcesz USUNĄĆ konto użytkownika ${user.email}?\n\nTa operacja jest NIEODWRACALNA!`)) {
+      return;
+    }
+    
+    if (!confirm('Czy jesteś ABSOLUTNIE pewien? To usunie wszystkie dane użytkownika!')) {
+      return;
+    }
+    
+    try {
+      console.log('🗑️ Deleting user:', user.email);
+      
+      // Usuń dane użytkownika pojedynczo, aby uniknąć problemów z uprawnieniami
+      await database.ref(`users/${selectedUserId}`).remove();
+      
+      // Usuń presence jeśli istnieje
+      try {
+        await database.ref(`presence/${selectedUserId}`).remove();
+      } catch (e) {
+        console.log('No presence to delete');
+      }
+      
+      // Usuń access request jeśli istnieje
+      try {
+        await database.ref(`accessRequests/${selectedUserId}`).remove();
+      } catch (e) {
+        console.log('No access request to delete');
+      }
+      
+      // Opcjonalnie: usuń wiadomości użytkownika
+      const messagesSnapshot = await database.ref('messages').once('value');
+      if (messagesSnapshot.exists()) {
+        const promises = [];
+        messagesSnapshot.forEach((child) => {
+          const message = child.val();
+          if (message.userId === selectedUserId) {
+            promises.push(database.ref(`messages/${child.key}`).remove());
+          }
+        });
+        
+        if (promises.length > 0) {
+          await Promise.all(promises);
+        }
+      }
+      
+      showToast(`Konto użytkownika ${user.email} zostało usunięte`, 'success');
+      if (userSettingsModal) userSettingsModal.style.display = 'none';
+      
+    } catch (error) {
+      console.error('Delete user error:', error);
+      showToast('Błąd usuwania konta: ' + error.message, 'error');
     }
   });
 
@@ -901,14 +1025,8 @@
       });
       
       showToast('Użytkownik odblokowany', 'success');
-      userSettingsModal.style.display = 'none';
+      if (userSettingsModal) userSettingsModal.style.display = 'none';
       
-      // Force refresh
-      const snapshot = await database.ref(`users/${selectedUserId}`).once('value');
-      if (snapshot.exists()) {
-        allUsers[selectedUserId] = snapshot.val();
-        renderUsersList();
-      }
     } catch (error) {
       console.error('Unblock error:', error);
       showToast('Błąd odblokowywania: ' + error.message, 'error');
@@ -920,11 +1038,11 @@
     
     try {
       await database.ref(`users/${selectedUserId}`).update({
-        chatEnabled: userChatEnabled.checked
+        chatEnabled: userChatEnabled?.checked
       });
       
       showToast('Ustawienia zapisane', 'success');
-      userSettingsModal.style.display = 'none';
+      if (userSettingsModal) userSettingsModal.style.display = 'none';
     } catch (error) {
       console.error('Save error:', error);
       showToast('Błąd zapisu: ' + error.message, 'error');
@@ -942,7 +1060,8 @@
       document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
       });
-      document.getElementById(`${tabName}-tab`).classList.add('active');
+      const targetTab = document.getElementById(`${tabName}-tab`);
+      if (targetTab) targetTab.classList.add('active');
     });
   });
 
@@ -964,11 +1083,11 @@
 
   // Admin Panel Open/Close
   adminPanelBtn?.addEventListener('click', () => {
-    adminPanel.style.display = 'flex';
+    if (adminPanel) adminPanel.style.display = 'flex';
   });
 
   closeAdminPanel?.addEventListener('click', () => {
-    adminPanel.style.display = 'none';
+    if (adminPanel) adminPanel.style.display = 'none';
   });
 
   // Check Status Button
@@ -1036,33 +1155,37 @@
     try {
       const userSnapshot = await database.ref(`users/${currentUser.uid}`).once('value');
       
-      if (userSnapshot.exists()) {
-        const userData = userSnapshot.val();
-        
-        if (userData.blocked && !userData.blockPermanent && userData.blockExpiry) {
-          if (Date.now() >= userData.blockExpiry) {
-            await database.ref(`users/${currentUser.uid}`).update({
-              blocked: false,
-              blockExpiry: null,
-              blockReason: null
-            });
-            
-            currentUserData = { ...userData, blocked: false };
-            isAdmin = await checkIfUserIsAdmin(currentUser.uid);
-            showApp(currentUser);
-            showToast('Twoje konto zostało odblokowane!', 'success');
-            return;
-          }
-        }
-        
-        if (!userData.blocked) {
-          currentUserData = userData;
+      if (!userSnapshot.exists()) {
+        showAuthError('Twoje konto zostało usunięte');
+        await auth.signOut();
+        return;
+      }
+      
+      const userData = userSnapshot.val();
+      
+      if (userData.blocked && !userData.blockPermanent && userData.blockExpiry) {
+        if (Date.now() >= userData.blockExpiry) {
+          await database.ref(`users/${currentUser.uid}`).update({
+            blocked: false,
+            blockExpiry: null,
+            blockReason: null
+          });
+          
+          currentUserData = { ...userData, blocked: false };
           isAdmin = await checkIfUserIsAdmin(currentUser.uid);
           showApp(currentUser);
-        } else {
-          showBlockedScreen(userData);
-          showToast('Twoje konto jest nadal zablokowane', 'error');
+          showToast('Twoje konto zostało odblokowane!', 'success');
+          return;
         }
+      }
+      
+      if (!userData.blocked) {
+        currentUserData = userData;
+        isAdmin = await checkIfUserIsAdmin(currentUser.uid);
+        showApp(currentUser);
+      } else {
+        showBlockedScreen(userData);
+        showToast('Twoje konto jest nadal zablokowane', 'error');
       }
     } catch (error) {
       console.error('Refresh error:', error);
@@ -1134,6 +1257,13 @@
       if (blockCheckInterval) {
         clearInterval(blockCheckInterval);
       }
+      if (deletionCheckInterval) {
+        clearInterval(deletionCheckInterval);
+      }
+      if (userDataListener) {
+        userDataListener.off();
+        userDataListener = null;
+      }
       if (userPresenceRef) {
         await userPresenceRef.remove();
       }
@@ -1147,7 +1277,7 @@
   // User menu
   userMenuBtn?.addEventListener('click', (e) => {
     e.stopPropagation();
-    userDropdown.classList.toggle('show');
+    userDropdown?.classList.toggle('show');
   });
 
   document.addEventListener('click', (e) => {
@@ -1175,6 +1305,13 @@
       if (blockCheckInterval) {
         clearInterval(blockCheckInterval);
       }
+      if (deletionCheckInterval) {
+        clearInterval(deletionCheckInterval);
+      }
+      if (userDataListener) {
+        userDataListener.off();
+        userDataListener = null;
+      }
       
       if (userPresenceRef) {
         userPresenceRef.remove();
@@ -1192,6 +1329,8 @@
 
   // Chat Functions  
   function startChatListeners() {
+    if (!messagesArea) return;
+    
     messagesArea.innerHTML = `
       <div class="chat-welcome">
         <div class="welcome-animation">
@@ -1233,11 +1372,13 @@
     presenceRef.on('value', (snapshot) => {
       const users = snapshot.val() || {};
       const onlineUsers = Object.values(users).filter(u => u.isOnline);
-      onlineCount.textContent = `${onlineUsers.length} online`;
+      if (onlineCount) onlineCount.textContent = `${onlineUsers.length} online`;
     });
   }
 
   function renderMessage(data, messageId) {
+    if (!messagesArea) return;
+    
     const welcome = messagesArea.querySelector('.chat-welcome');
     if (welcome) welcome.remove();
 
@@ -1298,16 +1439,20 @@
     selectedMessageId = messageId;
     selectedMessageText = messageText;
     
-    contextMenu.style.left = `${e.pageX}px`;
-    contextMenu.style.top = `${e.pageY}px`;
-    
-    if (isAdmin || messageUserId === currentUser.uid) {
-      deleteMessageBtn.style.display = 'flex';
-    } else {
-      deleteMessageBtn.style.display = 'none';
+    if (contextMenu) {
+      contextMenu.style.left = `${e.pageX}px`;
+      contextMenu.style.top = `${e.pageY}px`;
+      
+      if (deleteMessageBtn) {
+        if (isAdmin || messageUserId === currentUser.uid) {
+          deleteMessageBtn.style.display = 'flex';
+        } else {
+          deleteMessageBtn.style.display = 'none';
+        }
+      }
+      
+      contextMenu.classList.add('show');
     }
-    
-    contextMenu.classList.add('show');
   }
 
   // Context menu actions
@@ -1350,6 +1495,8 @@
   chatForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
     
+    if (!messageInput) return;
+    
     const text = messageInput.value.trim();
     if (!text || text.length > 500) return;
     
@@ -1380,7 +1527,7 @@
   messageInput?.addEventListener('keypress', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      chatForm.dispatchEvent(new Event('submit'));
+      chatForm?.dispatchEvent(new Event('submit'));
     }
   });
 
@@ -1415,13 +1562,15 @@
   }
 
   function updateCounts() {
+    if (!inputEl || !outputEl) return;
     const inLen = Array.from(inputEl.value).length;
     const outLen = Array.from(outputEl.value).length;
-    inputCount.textContent = `${inLen} ${pluralize(inLen, 'znak', 'znaki', 'znaków')}`;
-    outputCount.textContent = `${outLen} ${pluralize(outLen, 'znak', 'znaki', 'znaków')}`;
+    if (inputCount) inputCount.textContent = `${inLen} ${pluralize(inLen, 'znak', 'znaki', 'znaków')}`;
+    if (outputCount) outputCount.textContent = `${outLen} ${pluralize(outLen, 'znak', 'znaki', 'znaków')}`;
   }
 
   function transform() {
+    if (!inputEl || !outputEl) return;
     const text = inputEl.value || '';
     const result = cipherMode === 'encode' ? encode(text) : decode(text);
     outputEl.value = result;
@@ -1431,9 +1580,9 @@
   function setMode(mode) {
     cipherMode = mode;
     const isDecode = mode === 'decode';
-    btnEncode.classList.toggle('active', !isDecode);
-    btnDecode.classList.toggle('active', isDecode);
-    ambiguityWrap.style.display = isDecode ? 'flex' : 'none';
+    if (btnEncode) btnEncode.classList.toggle('active', !isDecode);
+    if (btnDecode) btnDecode.classList.toggle('active', isDecode);
+    if (ambiguityWrap) ambiguityWrap.style.display = isDecode ? 'flex' : 'none';
     transform();
   }
 
@@ -1472,21 +1621,23 @@
   btnDecode?.addEventListener('click', () => setMode('decode'));
 
   btnClear?.addEventListener('click', () => {
-    inputEl.value = '';
+    if (inputEl) inputEl.value = '';
     transform();
-    inputEl.focus();
+    if (inputEl) inputEl.focus();
     showToast('Wyczyszczono', 'success');
   });
 
   btnSwap?.addEventListener('click', () => {
-    inputEl.value = outputEl.value;
-    setMode(cipherMode === 'encode' ? 'decode' : 'encode');
-    inputEl.focus();
-    showToast('Zamieniono kierunek', 'success');
+    if (inputEl && outputEl) {
+      inputEl.value = outputEl.value;
+      setMode(cipherMode === 'encode' ? 'decode' : 'encode');
+      inputEl.focus();
+      showToast('Zamieniono kierunek', 'success');
+    }
   });
 
   btnCopyIn?.addEventListener('click', async () => {
-    if (!inputEl.value) {
+    if (!inputEl?.value) {
       showToast('Brak tekstu do skopiowania', 'warning');
       return;
     }
@@ -1495,7 +1646,7 @@
   });
 
   btnCopyOut?.addEventListener('click', async () => {
-    if (!outputEl.value) {
+    if (!outputEl?.value) {
       showToast('Brak wyniku do skopiowania', 'warning');
       return;
     }
@@ -1542,14 +1693,22 @@
     if (blockCheckInterval) {
       clearInterval(blockCheckInterval);
     }
+    if (deletionCheckInterval) {
+      clearInterval(deletionCheckInterval);
+    }
+    if (userDataListener) {
+      userDataListener.off();
+      userDataListener = null;
+    }
     if (userPresenceRef) {
       userPresenceRef.remove();
     }
   });
 
-  console.log('🚀 Alfawrogowie v2.2 - Enhanced Security Edition');
+  console.log('🚀 Alfawrogowie v2.3 - Full Security Edition');
   console.log('👑 First Google user becomes admin');
-  console.log('🔐 Real-time block monitoring active');
-  console.log('🛡️ Security features enabled');
+  console.log('🔐 Real-time block & deletion monitoring active');
+  console.log('🛡️ Full account management enabled');
   console.log('💬 Right-click messages for options');
+  console.log('📅 Build date: 2025-01-24');
 })();
