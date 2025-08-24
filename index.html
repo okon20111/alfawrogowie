@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>alfawrogowie — Ekskluzywny Szyfr & Czat</title>
+  <meta name="description" content="alfawrogowie — Szyfruj tekst i rozmawiaj w czasie rzeczywistym" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="auth-screen" class="auth-container">
+    <div class="auth-bg">
+      <div class="auth-gradient-1"></div>
+      <div class="auth-gradient-2"></div>
+      <div class="auth-gradient-3"></div>
+    </div>
+    
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="logo-animated">
+          <span class="logo-icon">⍟</span>
+          <div class="logo-rings"></div>
+        </div>
+        <h1 class="auth-title">alfawrogowie</h1>
+        <p class="auth-subtitle">Ekskluzywny dostęp do szyfru i czatu</p>
+      </div>
+
+      <div class="auth-content">
+        <div id="google-auth-step">
+          <p class="auth-info">Zaloguj się przez Google aby uzyskać dostęp</p>
+          
+          <button id="google-auth-btn" class="btn-google-modern">
+            <div class="google-icon-wrapper">
+              <svg class="google-icon" viewBox="0 0 24 24">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+              </svg>
+            </div>
+            <span class="google-btn-text">Kontynuuj z Google</span>
+          </button>
+        </div>
+
+        <div id="pending-approval" style="display: none;">
+          <div class="pending-card">
+            <div class="pending-icon">⏳</div>
+            <h3>Oczekiwanie na zatwierdzenie</h3>
+            <p>Twoja prośba o dostęp została wysłana do administratora.</p>
+            <p class="pending-email"></p>
+            <div class="pending-status">Status: <span class="status-badge">Oczekuje</span></div>
+            <button id="check-status-btn" class="btn-secondary">Sprawdź status</button>
+          </div>
+        </div>
+
+        <div id="account-blocked" style="display: none;">
+          <div class="blocked-card">
+            <div class="blocked-icon">🚫</div>
+            <h3>Konto zablokowane</h3>
+            <p id="block-reason-text">Twoje konto zostało tymczasowo zablokowane.</p>
+            <p id="block-expires"></p>
+            <button id="refresh-block-btn" class="btn-secondary">Odśwież</button>
+          </div>
+        </div>
+
+        <div id="auth-error" class="auth-error"></div>
+      </div>
+
+      <div class="auth-footer">
+        <p class="auth-note">🔒 Bezpieczne logowanie</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="app-container" style="display: none;">
+    <div class="app-bg">
+      <div class="bg-gradient-1"></div>
+      <div class="bg-gradient-2"></div>
+      <div class="bg-grid"></div>
+    </div>
+
+    <header class="app-header">
+      <div class="header-inner">
+        <div class="brand">
+          <div class="logo-box">
+            <span class="logo-symbol">⍟</span>
+          </div>
+          <div class="brand-text">
+            <h1 class="brand-title">alfawrogowie</h1>
+            <p class="brand-subtitle">Szyfr & Czat</p>
+          </div>
+        </div>
+        
+        <div class="header-controls">
+          <nav class="mode-selector">
+            <button class="mode-btn active" data-mode="encode" id="btn-encode">
+              <span class="mode-icon">◆</span>
+              <span class="mode-text">Szyfruj</span>
+            </button>
+            <button class="mode-btn" data-mode="decode" id="btn-decode">
+              <span class="mode-icon">⌖</span>
+              <span class="mode-text">Odszyfruj</span>
+            </button>
+          </nav>
+          
+          <div class="user-section">
+            <div id="admin-notifications" class="admin-badge" style="display: none;">
+              <span class="badge-count">0</span>
+            </div>
+            <button class="user-btn" id="user-menu-btn">
+              <span class="user-avatar" id="user-avatar-text">U</span>
+              <span class="user-status"></span>
+            </button>
+            <div class="user-dropdown" id="user-dropdown">
+              <div class="dropdown-header">
+                <div class="dropdown-avatar">
+                  <span id="dropdown-avatar-text">U</span>
+                </div>
+                <div class="dropdown-info">
+                  <span id="user-email" class="user-email">user@example.com</span>
+                  <span id="user-role" class="user-role">Użytkownik</span>
+                </div>
+              </div>
+              <div class="dropdown-divider"></div>
+              <button id="admin-panel-btn" class="dropdown-btn" style="display: none;">
+                <svg class="dropdown-icon" viewBox="0 0 24 24" width="16" height="16">
+                  <path fill="currentColor" d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5a3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97c0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.08-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1c0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z"/>
+                </svg>
+                Panel administratora
+              </button>
+              <button id="logout-btn" class="dropdown-btn">
+                <svg class="dropdown-icon" viewBox="0 0 24 24" width="16" height="16">
+                  <path fill="currentColor" d="M16 17v-3H9v-4h7V7l5 5-5 5M14 2a2 2 0 0 1 2 2v2h-2V4H5v16h9v-2h2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9z"/>
+                </svg>
+                Wyloguj się
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <div class="main-grid">
+        <!-- Cipher Section -->
+        <section class="panel cipher-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <h2>Konwerter Szyfru</h2>
+              <span class="panel-badge">v2.0</span>
+            </div>
+            <div class="panel-options">
+              <label class="ambiguity-selector" id="ambiguity-wrap">
+                <span class="selector-label">Symbol ⍟:</span>
+                <select id="ambiguity-select" class="selector-input">
+                  <option value="ę">→ ę</option>
+                  <option value="ś">→ ś</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div class="cipher-grid">
+            <div class="cipher-box input-box">
+              <div class="box-header">
+                <h3 class="box-title">Wejście</h3>
+                <div class="box-actions">
+                  <button class="action-btn" id="btn-clear" title="Wyczyść">
+                    <svg viewBox="0 0 24 24" width="18" height="18">
+                      <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
+                    </svg>
+                  </button>
+                  <button class="action-btn" id="btn-copy-in" title="Kopiuj">
+                    <svg viewBox="0 0 24 24" width="18" height="18">
+                      <path fill="currentColor" d="M19 21H8V7h11m0-2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2m-3-4H4a2 2 0 0 0-2 2v14h2V3h12V1z"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <textarea 
+                id="input" 
+                class="cipher-textarea"
+                placeholder="Wpisz tekst do zaszyfrowania lub odszyfrowania..."
+                spellcheck="false"
+              ></textarea>
+              <div class="box-footer">
+                <span id="input-count" class="char-count">0 znaków</span>
+              </div>
+            </div>
+
+            <div class="cipher-swap">
+              <button class="swap-btn" id="btn-swap" title="Zamień kierunek">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                  <path fill="currentColor" d="M6.99 11L3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z"/>
+                </svg>
+              </button>
+            </div>
+
+            <div class="cipher-box output-box">
+              <div class="box-header">
+                <h3 class="box-title">Wynik</h3>
+                <div class="box-actions">
+                  <button class="action-btn primary" id="btn-copy-out" title="Kopiuj wynik">
+                    <svg viewBox="0 0 24 24" width="18" height="18">
+                      <path fill="currentColor" d="M19 21H8V7h11m0-2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2m-3-4H4a2 2 0 0 0-2 2v14h2V3h12V1z"/>
+                    </svg>
+                    <span>Kopiuj</span>
+                  </button>
+                </div>
+              </div>
+              <textarea 
+                id="output" 
+                class="cipher-textarea output"
+                placeholder="Tutaj pojawi się wynik"
+                readonly
+                spellcheck="false"
+              ></textarea>
+              <div class="box-footer">
+                <span id="output-count" class="char-count">0 znaków</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Chat Section -->
+        <section class="panel chat-panel" id="chat-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <h2>Czat Live</h2>
+              <div class="online-indicator">
+                <span class="online-dot"></span>
+                <span id="online-count">0 online</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="chat-wrapper">
+            <div class="messages-container" id="messages-area">
+              <div class="chat-welcome">
+                <div class="welcome-animation">
+                  <span class="welcome-emoji">💬</span>
+                </div>
+                <h3>Witaj w czacie!</h3>
+                <p>Rozpocznij rozmowę z innymi użytkownikami</p>
+              </div>
+            </div>
+
+            <div id="chat-disabled" class="chat-disabled" style="display: none;">
+              <span>🚫</span>
+              <p>Czat został wyłączony dla Twojego konta</p>
+            </div>
+
+            <form class="chat-input-wrapper" id="chat-form">
+              <input 
+                type="text" 
+                id="message-input" 
+                class="chat-input" 
+                placeholder="Napisz wiadomość..."
+                maxlength="500"
+                autocomplete="off"
+              />
+              <button type="submit" class="send-button">
+                <svg viewBox="0 0 24 24" width="20" height="20">
+                  <path fill="currentColor" d="M2 21l21-9L2 3v7l15 2-15 2v7z"/>
+                </svg>
+              </button>
+            </form>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="app-footer">
+      <p>Made with <span class="heart">♥</span> for polskie litery — alfawrogowie © 2025</p>
+    </footer>
+  </div>
+
+  <!-- Admin Panel Modal -->
+  <div id="admin-panel" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Panel Administratora</h2>
+        <button class="modal-close" id="close-admin-panel">&times;</button>
+      </div>
+      
+      <div class="admin-tabs">
+        <button class="admin-tab active" data-tab="requests">
+          Prośby o dostęp
+          <span class="tab-badge" id="requests-count">0</span>
+        </button>
+        <button class="admin-tab" data-tab="users">
+          Użytkownicy
+          <span class="tab-badge" id="users-count">0</span>
+        </button>
+        <button class="admin-tab" data-tab="settings">
+          Ustawienia
+        </button>
+      </div>
+
+      <div class="admin-content">
+        <!-- Access Requests Tab -->
+        <div id="requests-tab" class="tab-content active">
+          <div class="requests-list" id="requests-list">
+            <div class="empty-state">
+              <span>📭</span>
+              <p>Brak nowych próśb o dostęp</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Users Tab -->
+        <div id="users-tab" class="tab-content">
+          <div class="users-search">
+            <input type="text" id="users-search" placeholder="Szukaj użytkownika..." />
+          </div>
+          <div class="users-list" id="users-list">
+            <div class="empty-state">
+              <span>👥</span>
+              <p>Brak użytkowników</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings-tab" class="tab-content">
+          <div class="settings-section">
+            <h3>Ustawienia globalne</h3>
+            <label class="setting-item">
+              <input type="checkbox" id="global-chat-enabled" checked />
+              <span>Czat włączony globalnie</span>
+            </label>
+            <label class="setting-item">
+              <input type="checkbox" id="auto-approve" />
+              <span>Automatyczne zatwierdzanie nowych użytkowników</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Settings Modal -->
+  <div id="user-settings-modal" class="modal">
+    <div class="modal-content small">
+      <div class="modal-header">
+        <h2>Ustawienia użytkownika</h2>
+        <button class="modal-close" id="close-user-settings">&times;</button>
+      </div>
+      
+      <div class="user-settings-content">
+        <div class="user-info">
+          <div class="user-info-avatar">
+            <span id="settings-user-avatar">U</span>
+          </div>
+          <div class="user-info-details">
+            <h3 id="settings-user-email">user@example.com</h3>
+            <p id="settings-user-joined">Dołączył: -</p>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <h4>Uprawnienia</h4>
+          <label class="setting-item">
+            <input type="checkbox" id="user-chat-enabled" />
+            <span>Czat włączony</span>
+          </label>
+          
+          <h4>Blokowanie konta</h4>
+          <div class="block-options">
+            <button class="btn-warning" id="temp-block-btn">Zablokuj tymczasowo</button>
+            <button class="btn-danger" id="perm-block-btn">Zablokuj na stałe</button>
+            <button class="btn-success" id="unblock-btn" style="display: none;">Odblokuj</button>
+          </div>
+
+          <div id="temp-block-form" style="display: none;">
+            <h5>Czas blokady</h5>
+            <div class="time-inputs">
+              <label>
+                <input type="number" id="block-months" min="0" placeholder="0" />
+                <span>Miesięcy</span>
+              </label>
+              <label>
+                <input type="number" id="block-days" min="0" placeholder="0" />
+                <span>Dni</span>
+              </label>
+              <label>
+                <input type="number" id="block-hours" min="0" placeholder="0" />
+                <span>Godzin</span>
+              </label>
+              <label>
+                <input type="number" id="block-minutes" min="0" placeholder="0" />
+                <span>Minut</span>
+              </label>
+            </div>
+            <input type="text" id="block-reason-input" placeholder="Powód blokady (opcjonalnie)" />
+            <button class="btn-warning" id="confirm-temp-block">Potwierdź blokadę</button>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-primary" id="save-user-settings">Zapisz zmiany</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast-notification" role="status" aria-live="polite">
+    <span class="toast-icon"></span>
+    <span class="toast-message"></span>
+  </div>
+
+  <!-- Message Context Menu -->
+  <div id="context-menu" class="context-menu">
+    <button class="context-item" id="copy-message">
+      <svg viewBox="0 0 24 24" width="16" height="16">
+        <path fill="currentColor" d="M19 21H8V7h11m0-2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2m-3-4H4a2 2 0 0 0-2 2v14h2V3h12V1z"/>
+      </svg>
+      Kopiuj wiadomość
+    </button>
+    <button class="context-item danger" id="delete-message" style="display: none;">
+      <svg viewBox="0 0 24 24" width="16" height="16">
+        <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+      </svg>
+      Usuń wiadomość
+    </button>
+  </div>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+  
+  <!-- Main App Script -->
+  <script src="script.js"></script>
+</body>
+</html>
